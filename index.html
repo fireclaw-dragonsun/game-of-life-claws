@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game of Life: Claws</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --cell-alive: #d4a846;
+    --cell-glow: #f5d576;
+    --cell-dying: #6b4c1e;
+    --grid-line: rgba(212, 168, 70, 0.04);
+    --text: #8a8a9a;
+    --text-bright: #c8c8d8;
+    --gold: #d4a846;
+    --gold-dim: rgba(212, 168, 70, 0.3);
+    --panel-bg: rgba(10, 10, 15, 0.92);
+    --border: rgba(212, 168, 70, 0.12);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 300;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* ─── HEADER ─── */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 40px;
+    pointer-events: none;
+  }
+
+  #header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  #header .stats {
+    font-size: 11px;
+    color: var(--text);
+    letter-spacing: 2px;
+    opacity: 0.5;
+  }
+
+  /* ─── CONTROLS PANEL ─── */
+  #panel {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    padding: 20px 40px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: opacity 0.6s ease;
+  }
+
+  #panel:hover { opacity: 1 !important; }
+
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .control-group label {
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text);
+    opacity: 0.5;
+  }
+
+  .control-group .value {
+    font-size: 16px;
+    color: var(--gold);
+    font-weight: 400;
+    min-width: 40px;
+    text-align: center;
+  }
+
+  button {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--gold);
+    padding: 8px 24px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  button:hover {
+    background: rgba(212, 168, 70, 0.08);
+    border-color: var(--gold-dim);
+  }
+
+  button.active {
+    background: rgba(212, 168, 70, 0.12);
+    border-color: var(--gold);
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100px;
+    height: 1px;
+    background: var(--border);
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+  }
+
+  /* ─── PRESETS ─── */
+  #presets {
+    position: fixed;
+    top: 24px;
+    right: 40px;
+    z-index: 20;
+    display: flex;
+    gap: 12px;
+  }
+
+  #presets button {
+    font-size: 9px;
+    padding: 6px 16px;
+    opacity: 0.5;
+  }
+
+  #presets button:hover { opacity: 1; }
+
+  /* ─── GEN COUNTER ─── */
+  #gen-display {
+    position: fixed;
+    bottom: 120px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-size: 48px;
+    font-weight: 300;
+    color: var(--gold);
+    opacity: 0.08;
+    letter-spacing: 8px;
+    pointer-events: none;
+  }
+
+  /* ─── RULES DISPLAY ─── */
+  #rules-display {
+    position: fixed;
+    top: 80px;
+    left: 40px;
+    z-index: 10;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text);
+    opacity: 0.25;
+    pointer-events: none;
+    line-height: 2;
+  }
+
+  /* ─── SIGIL ─── */
+  #sigil {
+    position: fixed;
+    bottom: 24px;
+    right: 40px;
+    z-index: 10;
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--gold);
+    opacity: 0.15;
+    pointer-events: none;
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  /* fade-in */
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  #panel, #header, #presets, #rules-display, #sigil {
+    animation: fadeIn 2s ease;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="grid"></canvas>
+
+<div id="header">
+  <h1>Game of Life : Claws</h1>
+  <div class="stats" id="stats">0 alive</div>
+</div>
+
+<div id="rules-display">
+  B <span id="rule-b">3</span> / S <span id="rule-s">2,3</span>
+</div>
+
+<div id="gen-display" id="gen">0</div>
+
+<div id="presets">
+  <button onclick="preset('glider')">Glider</button>
+  <button onclick="preset('pulsar')">Pulsar</button>
+  <button onclick="preset('gosper')">Gosper Gun</button>
+  <button onclick="preset('random')">Random</button>
+  <button onclick="preset('dragon')">Dragon</button>
+  <button onclick="clearGrid()">Clear</button>
+</div>
+
+<div id="panel">
+  <button id="btn-play" onclick="togglePlay()">Play</button>
+
+  <div class="control-group">
+    <label>Speed</label>
+    <input type="range" id="speed" min="1" max="30" value="10" oninput="updateSpeed()">
+  </div>
+
+  <div class="control-group">
+    <label>Cell Size</label>
+    <input type="range" id="cellsize" min="4" max="40" value="12" oninput="resizeGrid()">
+  </div>
+
+  <div class="control-group">
+    <label>Birth</label>
+    <input type="text" id="birth-input" value="3" style="
+      background: none; border: none; border-bottom: 1px solid var(--border);
+      color: var(--gold); font-family: inherit; font-size: 14px;
+      width: 50px; text-align: center; outline: none;
+    " onchange="updateRules()">
+  </div>
+
+  <div class="control-group">
+    <label>Survive</label>
+    <input type="text" id="survive-input" value="2,3" style="
+      background: none; border: none; border-bottom: 1px solid var(--border);
+      color: var(--gold); font-family: inherit; font-size: 14px;
+      width: 50px; text-align: center; outline: none;
+    " onchange="updateRules()">
+  </div>
+
+  <div class="control-group">
+    <label>Trail</label>
+    <input type="range" id="trail" min="0" max="100" value="40" oninput="updateTrail()">
+  </div>
+
+  <button onclick="stepOnce()">Step</button>
+</div>
+
+<div id="sigil">
+  Dragon Castle<br>
+  Est. 2026
+</div>
+
+<script>
+const canvas = document.getElementById('grid');
+const ctx = canvas.getContext('2d');
+
+let cellSize = 12;
+let cols, rows;
+let grid, prevGrid;
+let generation = 0;
+let population = 0;
+let playing = false;
+let interval = null;
+let fps = 10;
+let trailAlpha = 0.4;
+let birthRule = [3];
+let surviveRule = [2, 3];
+let painting = false;
+let paintValue = 1;
+
+function init() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  cols = Math.floor(window.innerWidth / cellSize);
+  rows = Math.floor(window.innerHeight / cellSize);
+  grid = new Uint8Array(cols * rows);
+  prevGrid = new Uint8Array(cols * rows);
+  generation = 0;
+  draw();
+}
+
+function idx(x, y) { return y * cols + x; }
+
+function countNeighbors(x, y) {
+  let count = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = (x + dx + cols) % cols;
+      const ny = (y + dy + rows) % rows;
+      if (grid[idx(nx, ny)]) count++;
+    }
+  }
+  return count;
+}
+
+function step() {
+  prevGrid.set(grid);
+  const next = new Uint8Array(cols * rows);
+  population = 0;
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const n = countNeighbors(x, y);
+      const alive = grid[idx(x, y)];
+      if (alive) {
+        next[idx(x, y)] = surviveRule.includes(n) ? 1 : 0;
+      } else {
+        next[idx(x, y)] = birthRule.includes(n) ? 1 : 0;
+      }
+      if (next[idx(x, y)]) population++;
+    }
+  }
+
+  grid = next;
+  generation++;
+  draw();
+  updateStats();
+}
+
+function draw() {
+  // Fade previous frame for trail effect
+  ctx.fillStyle = `rgba(10, 10, 15, ${1 - trailAlpha})`;
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+  // Grid lines (very subtle)
+  ctx.strokeStyle = 'rgba(212, 168, 70, 0.03)';
+  ctx.lineWidth = 0.5;
+
+  if (cellSize >= 10) {
+    for (let x = 0; x <= cols; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * cellSize, 0);
+      ctx.lineTo(x * cellSize, rows * cellSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= rows; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * cellSize);
+      ctx.lineTo(cols * cellSize, y * cellSize);
+      ctx.stroke();
+    }
+  }
+
+  // Draw cells
+  const gap = Math.max(1, Math.floor(cellSize * 0.15));
+  const s = cellSize - gap * 2;
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (grid[idx(x, y)]) {
+        // Alive cell — golden
+        const wasAlive = prevGrid[idx(x, y)];
+
+        if (!wasAlive) {
+          // Newborn — brighter
+          ctx.fillStyle = '#f5d576';
+          ctx.shadowColor = '#f5d576';
+          ctx.shadowBlur = cellSize * 0.8;
+        } else {
+          // Stable — warm gold
+          ctx.fillStyle = '#d4a846';
+          ctx.shadowColor = '#d4a846';
+          ctx.shadowBlur = cellSize * 0.4;
+        }
+
+        ctx.fillRect(
+          x * cellSize + gap,
+          y * cellSize + gap,
+          s, s
+        );
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+}
+
+function updateStats() {
+  document.getElementById('stats').textContent = `${population} alive`;
+  document.getElementById('gen-display').textContent = generation;
+}
+
+function togglePlay() {
+  playing = !playing;
+  const btn = document.getElementById('btn-play');
+  if (playing) {
+    btn.textContent = 'Pause';
+    btn.classList.add('active');
+    interval = setInterval(step, 1000 / fps);
+  } else {
+    btn.textContent = 'Play';
+    btn.classList.remove('active');
+    clearInterval(interval);
+  }
+}
+
+function stepOnce() {
+  if (playing) togglePlay();
+  step();
+}
+
+function updateSpeed() {
+  fps = parseInt(document.getElementById('speed').value);
+  if (playing) {
+    clearInterval(interval);
+    interval = setInterval(step, 1000 / fps);
+  }
+}
+
+function updateTrail() {
+  trailAlpha = parseInt(document.getElementById('trail').value) / 100;
+}
+
+function updateRules() {
+  const bStr = document.getElementById('birth-input').value;
+  const sStr = document.getElementById('survive-input').value;
+  birthRule = bStr.split(',').map(Number).filter(n => !isNaN(n));
+  surviveRule = sStr.split(',').map(Number).filter(n => !isNaN(n));
+  document.getElementById('rule-b').textContent = birthRule.join(',');
+  document.getElementById('rule-s').textContent = surviveRule.join(',');
+}
+
+function resizeGrid() {
+  cellSize = parseInt(document.getElementById('cellsize').value);
+  const oldGrid = grid;
+  const oldCols = cols;
+  const oldRows = rows;
+  init();
+  // Copy old state
+  for (let y = 0; y < Math.min(oldRows, rows); y++) {
+    for (let x = 0; x < Math.min(oldCols, cols); x++) {
+      grid[idx(x, y)] = oldGrid[y * oldCols + x];
+    }
+  }
+  draw();
+}
+
+function clearGrid() {
+  grid.fill(0);
+  prevGrid.fill(0);
+  generation = 0;
+  population = 0;
+  ctx.fillStyle = 'rgba(10, 10, 15, 1)';
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  draw();
+  updateStats();
+}
+
+function setCell(cx, cy, val) {
+  const x = Math.floor(cx / cellSize);
+  const y = Math.floor(cy / cellSize);
+  if (x >= 0 && x < cols && y >= 0 && y < rows) {
+    grid[idx(x, y)] = val;
+    draw();
+    population = grid.reduce((a, b) => a + b, 0);
+    updateStats();
+  }
+}
+
+// ─── PRESETS ───
+
+function placePattern(pattern, ox, oy) {
+  if (ox === undefined) ox = Math.floor(cols / 2) - Math.floor(pattern[0].length / 2);
+  if (oy === undefined) oy = Math.floor(rows / 2) - Math.floor(pattern.length / 2);
+  for (let y = 0; y < pattern.length; y++) {
+    for (let x = 0; x < pattern[y].length; x++) {
+      if (pattern[y][x]) {
+        const gx = (ox + x + cols) % cols;
+        const gy = (oy + y + rows) % rows;
+        grid[idx(gx, gy)] = 1;
+      }
+    }
+  }
+}
+
+function preset(name) {
+  clearGrid();
+
+  if (name === 'glider') {
+    placePattern([
+      [0,1,0],
+      [0,0,1],
+      [1,1,1]
+    ]);
+  }
+
+  else if (name === 'pulsar') {
+    placePattern([
+      [0,0,1,1,1,0,0,0,1,1,1,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [0,0,1,1,1,0,0,0,1,1,1,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,1,1,1,0,0,0,1,1,1,0,0],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [1,0,0,0,0,1,0,1,0,0,0,0,1],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,1,1,1,0,0,0,1,1,1,0,0],
+    ]);
+  }
+
+  else if (name === 'gosper') {
+    placePattern([
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+      [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+      [1,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,1,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    ]);
+  }
+
+  else if (name === 'random') {
+    const density = 0.15;
+    for (let i = 0; i < grid.length; i++) {
+      grid[i] = Math.random() < density ? 1 : 0;
+    }
+  }
+
+  else if (name === 'dragon') {
+    // Dragon silhouette — a claw-like pattern that evolves beautifully
+    const cx = Math.floor(cols / 2);
+    const cy = Math.floor(rows / 2);
+
+    // Wings (symmetric)
+    for (let i = 0; i < 12; i++) {
+      const angle1 = (-Math.PI * 0.6) + (i / 12) * Math.PI * 0.5;
+      const angle2 = (-Math.PI * 0.4) - (i / 12) * Math.PI * 0.5;
+      const r = 4 + i * 1.2;
+      // Left wing
+      const lx = Math.round(cx - r * Math.cos(angle1));
+      const ly = Math.round(cy + r * Math.sin(angle1));
+      if (lx >= 0 && lx < cols && ly >= 0 && ly < rows) grid[idx(lx, ly)] = 1;
+      // Right wing
+      const rx = Math.round(cx + r * Math.cos(angle1));
+      const ry = Math.round(cy + r * Math.sin(angle1));
+      if (rx >= 0 && rx < cols && ry >= 0 && ry < rows) grid[idx(rx, ry)] = 1;
+    }
+
+    // Body
+    for (let i = -6; i <= 8; i++) {
+      const x = cx;
+      const y = cy + i;
+      if (y >= 0 && y < rows) grid[idx(x, y)] = 1;
+      if (i > 0 && x - 1 >= 0) grid[idx(x - 1, y)] = 1;
+      if (i > 0 && x + 1 < cols) grid[idx(x + 1, y)] = 1;
+    }
+
+    // Claws (5 fingers on each side)
+    for (let f = 0; f < 5; f++) {
+      const angle = -0.4 + f * 0.2;
+      for (let r = 0; r < 4; r++) {
+        const clx = Math.round(cx - 8 - r * Math.cos(angle));
+        const cly = Math.round(cy + 6 + r * Math.sin(angle));
+        if (clx >= 0 && clx < cols && cly >= 0 && cly < rows) grid[idx(clx, cly)] = 1;
+        const crx = Math.round(cx + 8 + r * Math.cos(angle));
+        const cry = Math.round(cy + 6 + r * Math.sin(angle));
+        if (crx >= 0 && crx < cols && cry >= 0 && cry < rows) grid[idx(crx, cry)] = 1;
+      }
+    }
+
+    // Scatter some life around the dragon
+    for (let i = 0; i < 40; i++) {
+      const rx = cx + Math.round((Math.random() - 0.5) * 30);
+      const ry = cy + Math.round((Math.random() - 0.5) * 20);
+      if (rx >= 0 && rx < cols && ry >= 0 && ry < rows) grid[idx(rx, ry)] = 1;
+    }
+  }
+
+  population = grid.reduce((a, b) => a + b, 0);
+  draw();
+  updateStats();
+}
+
+// ─── MOUSE DRAWING ───
+
+canvas.addEventListener('mousedown', (e) => {
+  painting = true;
+  const x = Math.floor(e.clientX / cellSize);
+  const y = Math.floor(e.clientY / cellSize);
+  if (x >= 0 && x < cols && y >= 0 && y < rows) {
+    paintValue = grid[idx(x, y)] ? 0 : 1;
+    setCell(e.clientX, e.clientY, paintValue);
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (painting) setCell(e.clientX, e.clientY, paintValue);
+});
+
+canvas.addEventListener('mouseup', () => painting = false);
+canvas.addEventListener('mouseleave', () => painting = false);
+
+// Touch support
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  painting = true;
+  const t = e.touches[0];
+  const x = Math.floor(t.clientX / cellSize);
+  const y = Math.floor(t.clientY / cellSize);
+  if (x >= 0 && x < cols && y >= 0 && y < rows) {
+    paintValue = grid[idx(x, y)] ? 0 : 1;
+    setCell(t.clientX, t.clientY, paintValue);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (painting) {
+    const t = e.touches[0];
+    setCell(t.clientX, t.clientY, paintValue);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => painting = false);
+
+// ─── KEYBOARD ───
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'KeyC') clearGrid();
+  if (e.code === 'KeyR') preset('random');
+  if (e.code === 'KeyD') preset('dragon');
+  if (e.code === 'ArrowRight') stepOnce();
+});
+
+// ─── RESIZE ───
+
+window.addEventListener('resize', () => {
+  const oldGrid = grid;
+  const oldCols = cols;
+  const oldRows = rows;
+  init();
+  for (let y = 0; y < Math.min(oldRows, rows); y++) {
+    for (let x = 0; x < Math.min(oldCols, cols); x++) {
+      grid[idx(x, y)] = oldGrid[y * oldCols + x];
+    }
+  }
+  draw();
+});
+
+// ─── PANEL FADE ───
+
+let fadeTimeout;
+document.addEventListener('mousemove', () => {
+  document.getElementById('panel').style.opacity = '1';
+  clearTimeout(fadeTimeout);
+  fadeTimeout = setTimeout(() => {
+    if (playing) document.getElementById('panel').style.opacity = '0.2';
+  }, 3000);
+});
+
+// ─── INIT ───
+
+init();
+preset('dragon');
+updateStats();
+</script>
+</body>
+</html>
