@@ -286,8 +286,9 @@
   <button onclick="preset('glider')">Glider</button>
   <button onclick="preset('pulsar')">Pulsar</button>
   <button onclick="preset('gosper')">Gosper Gun</button>
-  <button onclick="preset('random')">Random</button>
   <button onclick="preset('dragon')">Dragon</button>
+  <button onclick="preset('stable')">Random Stable</button>
+  <button onclick="preset('chaos')">Random Chaos</button>
   <button onclick="clearGrid()">Clear</button>
 </div>
 
@@ -696,6 +697,40 @@ function preset(name) {
     }
   }
 
+  else if (name === 'stable') {
+    // Scatter well-known beautiful still lifes and oscillators randomly across the grid
+    const stills = {
+      block: [[1,1],[1,1]],
+      beehive: [[0,1,1,0],[1,0,0,1],[0,1,1,0]],
+      loaf: [[0,1,1,0],[1,0,0,1],[0,1,0,1],[0,0,1,0]],
+      boat: [[1,1,0],[1,0,1],[0,1,0]],
+      tub: [[0,1,0],[1,0,1],[0,1,0]],
+      ship: [[1,1,0],[1,0,1],[0,1,1]],
+      pond: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[0,1,1,0]],
+    };
+    const oscillators = {
+      blinker: [[1,1,1]],
+      toad: [[0,1,1,1],[1,1,1,0]],
+      beacon: [[1,1,0,0],[1,1,0,0],[0,0,1,1],[0,0,1,1]],
+      clock: [[0,0,1,0],[1,1,0,0],[0,0,1,1],[0,1,0,0]],
+    };
+    const allPatterns = Object.values(stills).concat(Object.values(oscillators));
+    const count = Math.floor((cols * rows) / 200); // density based on grid size
+    for (let i = 0; i < count; i++) {
+      const p = allPatterns[Math.floor(Math.random() * allPatterns.length)];
+      const ox = Math.floor(Math.random() * (cols - 8));
+      const oy = Math.floor(Math.random() * (rows - 8));
+      placePattern(p, ox, oy);
+    }
+  }
+
+  else if (name === 'chaos') {
+    // High-density random fill — chaotic evolution
+    for (let i = 0; i < grid.length; i++) {
+      grid[i] = Math.random() < 0.38 ? 1 : 0;
+    }
+  }
+
   else if (name === 'dragon') {
     const cx = Math.floor(cols / 2);
     const cy = Math.floor(rows / 2);
@@ -745,6 +780,11 @@ function preset(name) {
   population = grid.reduce((a, b) => a + b, 0);
   draw();
   updateStats();
+
+  // Auto-start for random presets
+  if ((name === 'stable' || name === 'chaos') && !playing) {
+    togglePlay();
+  }
 }
 
 // ─── MOUSE DRAWING ───
