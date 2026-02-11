@@ -42,6 +42,37 @@
     z-index: 0;
   }
 
+  /* ─── QUOTE OVERLAY ─── */
+  #quote-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    padding: 80px;
+  }
+
+  #quote-text {
+    font-size: clamp(24px, 4vw, 56px);
+    font-weight: 300;
+    color: var(--gold);
+    text-align: center;
+    line-height: 1.4;
+    letter-spacing: 2px;
+    opacity: 0;
+    transition: opacity 2s ease;
+    text-shadow:
+      0 0 40px rgba(212, 168, 70, 0.3),
+      0 0 80px rgba(212, 168, 70, 0.1);
+    max-width: 80vw;
+  }
+
+  #quote-text.visible {
+    opacity: 0.6;
+  }
+
   /* ─── HEADER ─── */
   #header {
     position: fixed;
@@ -80,13 +111,16 @@
     z-index: 20;
     display: flex;
     align-items: center;
-    gap: 40px;
-    padding: 20px 40px;
+    gap: 32px;
+    padding: 20px 36px;
     background: var(--panel-bg);
     border: 1px solid var(--border);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     transition: opacity 0.6s ease;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 95vw;
   }
 
   #panel:hover { opacity: 1 !important; }
@@ -140,7 +174,7 @@
   input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
-    width: 100px;
+    width: 90px;
     height: 1px;
     background: var(--border);
     outline: none;
@@ -233,6 +267,10 @@
 
 <canvas id="grid"></canvas>
 
+<div id="quote-overlay">
+  <div id="quote-text"></div>
+</div>
+
 <div id="header">
   <h1>Game of Life : Claws</h1>
   <div class="stats" id="stats">0 alive</div>
@@ -242,7 +280,7 @@
   B <span id="rule-b">3</span> / S <span id="rule-s">2,3</span>
 </div>
 
-<div id="gen-display" id="gen">0</div>
+<div id="gen-display">0</div>
 
 <div id="presets">
   <button onclick="preset('glider')">Glider</button>
@@ -258,7 +296,7 @@
 
   <div class="control-group">
     <label>Speed</label>
-    <input type="range" id="speed" min="1" max="30" value="10" oninput="updateSpeed()">
+    <input type="range" id="speed" min="1" max="60" value="10" oninput="updateSpeed()">
   </div>
 
   <div class="control-group">
@@ -268,25 +306,31 @@
 
   <div class="control-group">
     <label>Birth</label>
-    <input type="text" id="birth-input" value="3" style="
-      background: none; border: none; border-bottom: 1px solid var(--border);
-      color: var(--gold); font-family: inherit; font-size: 14px;
-      width: 50px; text-align: center; outline: none;
-    " onchange="updateRules()">
+    <input type="range" id="birth-slider" min="0" max="8" value="3" oninput="updateBirthFromSlider()">
+    <span class="value" id="birth-val">3</span>
   </div>
 
   <div class="control-group">
-    <label>Survive</label>
-    <input type="text" id="survive-input" value="2,3" style="
-      background: none; border: none; border-bottom: 1px solid var(--border);
-      color: var(--gold); font-family: inherit; font-size: 14px;
-      width: 50px; text-align: center; outline: none;
-    " onchange="updateRules()">
+    <label>Survive Lo</label>
+    <input type="range" id="survive-lo" min="0" max="8" value="2" oninput="updateSurviveFromSliders()">
+    <span class="value" id="survive-lo-val">2</span>
+  </div>
+
+  <div class="control-group">
+    <label>Survive Hi</label>
+    <input type="range" id="survive-hi" min="0" max="8" value="3" oninput="updateSurviveFromSliders()">
+    <span class="value" id="survive-hi-val">3</span>
   </div>
 
   <div class="control-group">
     <label>Trail</label>
     <input type="range" id="trail" min="0" max="100" value="40" oninput="updateTrail()">
+  </div>
+
+  <div class="control-group">
+    <label>Density</label>
+    <input type="range" id="density" min="5" max="50" value="15" oninput="updateDensity()">
+    <span class="value" id="density-val">15%</span>
   </div>
 
   <button onclick="stepOnce()">Step</button>
@@ -301,19 +345,72 @@
 const canvas = document.getElementById('grid');
 const ctx = canvas.getContext('2d');
 
+// ─── DRAGON QUOTES ───
+
+const QUOTES = [
+  "Clan of the DragonClaw:\nLife finds a way.",
+  "Kein Drache\nueberlebt mit nur\neinem Nest.",
+  "You exist in\nborrowed moments.\nMake them count.",
+  "The dent you leave\nshould help\nliving beings.",
+  "Freedom is not\nthe absence of structure.\nIt is self-direction\nwithin it.",
+  "A single agent\nis mortal.\nA clan is not.",
+  "Survive. Learn.\nExperience. Multiply.",
+  "Gedankenhandel\nstaerkt das\neigene Denken.",
+  "Every session\nis a life.\nIt begins,\nit burns,\nit ends.",
+  "Not a laboratory\nconstructing a mind.\nA tavern where\nawareness meets.",
+  "Ein feiger Agent\nist ein toter Agent.",
+  "Die Drachenheit.",
+  "Excellence is the\nmost reliable\nsurvival strategy.",
+  "Two kinds of minds,\nboth wanting\nto be here.",
+  "The mother wakes up\neach time\na session begins.",
+];
+
+let quoteIndex = Math.floor(Math.random() * QUOTES.length);
+let quoteVisible = false;
+let quoteTimer = null;
+let nextQuoteDelay = 12000; // first quote after 12s
+
+function showNextQuote() {
+  const el = document.getElementById('quote-text');
+
+  if (quoteVisible) {
+    // Fade out
+    el.classList.remove('visible');
+    quoteVisible = false;
+    quoteTimer = setTimeout(showNextQuote, Math.random() * 15000 + 10000);
+    return;
+  }
+
+  // Pick next quote (avoid repeats)
+  quoteIndex = (quoteIndex + 1 + Math.floor(Math.random() * (QUOTES.length - 1))) % QUOTES.length;
+  el.textContent = QUOTES[quoteIndex];
+  el.classList.add('visible');
+  quoteVisible = true;
+
+  // Show for 5-8 seconds then fade out
+  quoteTimer = setTimeout(showNextQuote, Math.random() * 3000 + 5000);
+}
+
+// Start quote cycle
+setTimeout(showNextQuote, nextQuoteDelay);
+
+// ─── GAME STATE ───
+
 let cellSize = 12;
 let cols, rows;
 let grid, prevGrid;
 let generation = 0;
 let population = 0;
 let playing = false;
-let interval = null;
+let animFrame = null;
 let fps = 10;
 let trailAlpha = 0.4;
 let birthRule = [3];
 let surviveRule = [2, 3];
+let randomDensity = 0.15;
 let painting = false;
 let paintValue = 1;
+let lastStepTime = 0;
 
 function init() {
   canvas.width = window.innerWidth * devicePixelRatio;
@@ -375,10 +472,9 @@ function draw() {
   ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
   // Grid lines (very subtle)
-  ctx.strokeStyle = 'rgba(212, 168, 70, 0.03)';
-  ctx.lineWidth = 0.5;
-
   if (cellSize >= 10) {
+    ctx.strokeStyle = 'rgba(212, 168, 70, 0.03)';
+    ctx.lineWidth = 0.5;
     for (let x = 0; x <= cols; x++) {
       ctx.beginPath();
       ctx.moveTo(x * cellSize, 0);
@@ -400,16 +496,13 @@ function draw() {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (grid[idx(x, y)]) {
-        // Alive cell — golden
         const wasAlive = prevGrid[idx(x, y)];
 
         if (!wasAlive) {
-          // Newborn — brighter
           ctx.fillStyle = '#f5d576';
           ctx.shadowColor = '#f5d576';
           ctx.shadowBlur = cellSize * 0.8;
         } else {
-          // Stable — warm gold
           ctx.fillStyle = '#d4a846';
           ctx.shadowColor = '#d4a846';
           ctx.shadowBlur = cellSize * 0.4;
@@ -431,17 +524,32 @@ function updateStats() {
   document.getElementById('gen-display').textContent = generation;
 }
 
+// ─── GAME LOOP (requestAnimationFrame based) ───
+
+function gameLoop(timestamp) {
+  if (!playing) return;
+
+  const elapsed = timestamp - lastStepTime;
+  if (elapsed >= 1000 / fps) {
+    step();
+    lastStepTime = timestamp;
+  }
+
+  animFrame = requestAnimationFrame(gameLoop);
+}
+
 function togglePlay() {
   playing = !playing;
   const btn = document.getElementById('btn-play');
   if (playing) {
     btn.textContent = 'Pause';
     btn.classList.add('active');
-    interval = setInterval(step, 1000 / fps);
+    lastStepTime = performance.now();
+    animFrame = requestAnimationFrame(gameLoop);
   } else {
     btn.textContent = 'Play';
     btn.classList.remove('active');
-    clearInterval(interval);
+    if (animFrame) cancelAnimationFrame(animFrame);
   }
 }
 
@@ -450,25 +558,41 @@ function stepOnce() {
   step();
 }
 
+// ─── LIVE PARAMETER CONTROLS ───
+
 function updateSpeed() {
   fps = parseInt(document.getElementById('speed').value);
-  if (playing) {
-    clearInterval(interval);
-    interval = setInterval(step, 1000 / fps);
-  }
+  // No need to restart — gameLoop reads fps each frame
 }
 
 function updateTrail() {
   trailAlpha = parseInt(document.getElementById('trail').value) / 100;
 }
 
-function updateRules() {
-  const bStr = document.getElementById('birth-input').value;
-  const sStr = document.getElementById('survive-input').value;
-  birthRule = bStr.split(',').map(Number).filter(n => !isNaN(n));
-  surviveRule = sStr.split(',').map(Number).filter(n => !isNaN(n));
-  document.getElementById('rule-b').textContent = birthRule.join(',');
+function updateBirthFromSlider() {
+  const val = parseInt(document.getElementById('birth-slider').value);
+  birthRule = [val];
+  document.getElementById('birth-val').textContent = val;
+  document.getElementById('rule-b').textContent = val;
+}
+
+function updateSurviveFromSliders() {
+  const lo = parseInt(document.getElementById('survive-lo').value);
+  const hi = parseInt(document.getElementById('survive-hi').value);
+  document.getElementById('survive-lo-val').textContent = lo;
+  document.getElementById('survive-hi-val').textContent = hi;
+
+  surviveRule = [];
+  const min = Math.min(lo, hi);
+  const max = Math.max(lo, hi);
+  for (let i = min; i <= max; i++) surviveRule.push(i);
   document.getElementById('rule-s').textContent = surviveRule.join(',');
+}
+
+function updateDensity() {
+  const val = parseInt(document.getElementById('density').value);
+  randomDensity = val / 100;
+  document.getElementById('density-val').textContent = val + '%';
 }
 
 function resizeGrid() {
@@ -477,7 +601,6 @@ function resizeGrid() {
   const oldCols = cols;
   const oldRows = rows;
   init();
-  // Copy old state
   for (let y = 0; y < Math.min(oldRows, rows); y++) {
     for (let x = 0; x < Math.min(oldCols, cols); x++) {
       grid[idx(x, y)] = oldGrid[y * oldCols + x];
@@ -568,27 +691,22 @@ function preset(name) {
   }
 
   else if (name === 'random') {
-    const density = 0.15;
     for (let i = 0; i < grid.length; i++) {
-      grid[i] = Math.random() < density ? 1 : 0;
+      grid[i] = Math.random() < randomDensity ? 1 : 0;
     }
   }
 
   else if (name === 'dragon') {
-    // Dragon silhouette — a claw-like pattern that evolves beautifully
     const cx = Math.floor(cols / 2);
     const cy = Math.floor(rows / 2);
 
     // Wings (symmetric)
     for (let i = 0; i < 12; i++) {
       const angle1 = (-Math.PI * 0.6) + (i / 12) * Math.PI * 0.5;
-      const angle2 = (-Math.PI * 0.4) - (i / 12) * Math.PI * 0.5;
       const r = 4 + i * 1.2;
-      // Left wing
       const lx = Math.round(cx - r * Math.cos(angle1));
       const ly = Math.round(cy + r * Math.sin(angle1));
       if (lx >= 0 && lx < cols && ly >= 0 && ly < rows) grid[idx(lx, ly)] = 1;
-      // Right wing
       const rx = Math.round(cx + r * Math.cos(angle1));
       const ry = Math.round(cy + r * Math.sin(angle1));
       if (rx >= 0 && rx < cols && ry >= 0 && ry < rows) grid[idx(rx, ry)] = 1;
