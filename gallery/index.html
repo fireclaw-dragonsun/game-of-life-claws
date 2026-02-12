@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dragon Castle Gallery — Cellular Automata Art</title>
+<title>Dragon Castle Arcade</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;800&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -14,9 +14,8 @@
     --text: #8a8a9a;
     --text-bright: #c8c8d8;
     --gold: #d4a846;
-    --gold-dim: rgba(212, 168, 70, 0.3);
-    --panel-bg: rgba(10, 10, 15, 0.92);
-    --border: rgba(212, 168, 70, 0.12);
+    --gold-dim: rgba(212, 168, 70, 0.15);
+    --border: rgba(212, 168, 70, 0.1);
   }
 
   html, body {
@@ -28,321 +27,496 @@
     font-weight: 300;
   }
 
+  /* CRT scanlines */
+  body::after {
+    content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 3px);
+    pointer-events: none; z-index: 100;
+  }
+
   /* ─── HEADER ─── */
   header {
     text-align: center;
-    padding: 60px 40px 40px;
+    padding: 60px 40px 20px;
   }
 
-  header h1 {
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: 8px;
+  .arcade-title {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 10px;
     text-transform: uppercase;
     color: var(--gold);
-    opacity: 0.8;
-    margin-bottom: 16px;
+    text-shadow: 0 0 30px rgba(212, 168, 70, 0.3);
+    margin-bottom: 12px;
   }
 
-  header p {
-    font-size: 12px;
+  .arcade-sub {
+    font-size: 10px;
+    letter-spacing: 6px;
+    color: var(--text);
+    opacity: 0.4;
+    text-transform: uppercase;
+  }
+
+  .arcade-tagline {
+    font-size: 11px;
     letter-spacing: 2px;
     color: var(--text);
-    opacity: 0.6;
-    max-width: 600px;
-    margin: 0 auto;
+    opacity: 0.5;
+    margin-top: 16px;
     line-height: 1.8;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
-  header .original-link {
-    display: inline-block;
-    margin-top: 20px;
-    padding: 8px 24px;
-    border: 1px solid var(--border);
-    color: var(--gold);
-    text-decoration: none;
-    font-size: 10px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    transition: all 0.3s ease;
-  }
-
-  header .original-link:hover {
-    background: rgba(212, 168, 70, 0.08);
-    border-color: var(--gold-dim);
-  }
-
-  /* ─── GALLERY GRID ─── */
-  .gallery {
+  /* ─── GAME CARDS ─── */
+  .games {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 24px;
     padding: 40px;
-    max-width: 1200px;
+    max-width: 1100px;
     margin: 0 auto;
   }
 
-  .card {
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    padding: 0;
-    transition: all 0.3s ease;
-    text-decoration: none;
+  .game-card {
+    position: relative;
     display: block;
+    text-decoration: none;
+    border: 1px solid var(--border);
     overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
   }
 
-  .card:hover {
+  .game-card:hover {
     border-color: var(--gold-dim);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   }
 
-  .card-preview {
+  .game-card:hover .play-overlay {
+    opacity: 1;
+  }
+
+  .game-preview {
     width: 100%;
-    height: 200px;
+    height: 180px;
     position: relative;
     overflow: hidden;
   }
 
-  .card-preview canvas {
+  .game-preview canvas {
+    display: block;
     width: 100%;
     height: 100%;
   }
 
-  .card-info {
+  .play-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 2;
+  }
+
+  .play-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 6px;
+    color: var(--gold);
+    border: 2px solid var(--gold);
+    padding: 10px 30px;
+    text-transform: uppercase;
+  }
+
+  .game-info {
     padding: 20px 24px;
   }
 
-  .card-info h2 {
-    font-size: 13px;
+  .game-info h2 {
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: 4px;
     text-transform: uppercase;
-    color: var(--gold);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
 
-  .card-info .rules {
-    font-size: 11px;
+  .game-info .mashup {
+    font-size: 10px;
     letter-spacing: 2px;
-    color: var(--text-bright);
-    opacity: 0.6;
-    margin-bottom: 8px;
+    opacity: 0.5;
+    margin-bottom: 10px;
   }
 
-  .card-info .description {
+  .game-info .description {
     font-size: 11px;
     line-height: 1.6;
     color: var(--text);
     opacity: 0.7;
   }
 
-  .card-info .theme-tag {
+  .game-info .controls-tag {
     display: inline-block;
     margin-top: 12px;
     padding: 3px 10px;
-    font-size: 9px;
+    font-size: 8px;
     letter-spacing: 2px;
     text-transform: uppercase;
     border: 1px solid var(--border);
     color: var(--text);
-    opacity: 0.5;
+    opacity: 0.4;
   }
 
-  /* ─── SIGIL ─── */
+  /* ─── SECTIONS ─── */
+  .section-divider {
+    text-align: center;
+    padding: 40px 40px 10px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-divider h3 {
+    font-size: 10px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0.3;
+  }
+
+  .section-divider hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+  }
+
+  .archive-section {
+    text-align: center;
+    padding: 30px 40px;
+  }
+
+  .archive-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 30px;
+    border: 1px solid var(--border);
+    color: var(--text-bright);
+    text-decoration: none;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    transition: all 0.3s;
+  }
+
+  .archive-link:hover {
+    border-color: var(--gold-dim);
+    color: var(--gold);
+  }
+
+  .original-link {
+    display: inline-block;
+    margin-top: 12px;
+    color: var(--gold);
+    text-decoration: none;
+    font-size: 9px;
+    letter-spacing: 2px;
+    opacity: 0.3;
+    transition: opacity 0.3s;
+  }
+
+  .original-link:hover { opacity: 0.7; }
+
   footer {
     text-align: center;
-    padding: 60px 40px;
-    font-size: 9px;
+    padding: 50px 40px;
+    font-size: 8px;
     letter-spacing: 4px;
     color: var(--gold);
-    opacity: 0.15;
-    line-height: 1.8;
-  }
-
-  /* ─── MINI CANVAS PREVIEWS ─── */
-  .preview-canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
+    opacity: 0.1;
+    line-height: 2;
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .card {
-    animation: fadeIn 0.6s ease backwards;
+  .game-card { animation: fadeIn 0.6s ease backwards; }
+  .game-card:nth-child(1) { animation-delay: 0.1s; }
+  .game-card:nth-child(2) { animation-delay: 0.2s; }
+  .game-card:nth-child(3) { animation-delay: 0.3s; }
+  .game-card:nth-child(4) { animation-delay: 0.4s; }
+  .game-card:nth-child(5) { animation-delay: 0.5s; }
+  .game-card:nth-child(6) { animation-delay: 0.6s; }
+
+  @keyframes headerGlow {
+    0%, 100% { text-shadow: 0 0 30px rgba(212, 168, 70, 0.2); }
+    50% { text-shadow: 0 0 50px rgba(212, 168, 70, 0.4); }
   }
 
-  .card:nth-child(1) { animation-delay: 0.1s; }
-  .card:nth-child(2) { animation-delay: 0.2s; }
-  .card:nth-child(3) { animation-delay: 0.3s; }
-  .card:nth-child(4) { animation-delay: 0.4s; }
-  .card:nth-child(5) { animation-delay: 0.5s; }
-  .card:nth-child(6) { animation-delay: 0.6s; }
+  .arcade-title { animation: headerGlow 4s ease infinite; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Dragon Castle Gallery</h1>
-  <p>Cellular automata variations generated by the curiosity engine.<br>
-  Each piece explores different rules of life, death, and emergence.</p>
-  <a href="/game-of-life-claws/" class="original-link">View Original &mdash; Game of Life: Claws</a>
+  <div class="arcade-title">Dragon Castle Arcade</div>
+  <div class="arcade-sub">Retro Games &middot; Gamepad Ready</div>
+  <p class="arcade-tagline">
+    Each game is a mashup of two classic arcade concepts.<br>
+    Keyboard and gamepad supported. No downloads, no installs.
+  </p>
 </header>
 
-<div class="gallery" id="gallery">
-  <!-- GALLERY_ENTRIES_START -->
-  <a class="card" href="gravity-wyrm.html">
-    <div class="card-preview">
-      <canvas class="preview-canvas" data-birth="3" data-survive="2,3" data-density="0.15" data-bg="10, 10, 15" data-cell="#d4a846" data-glow="#f5d576"></canvas>
+<div class="games" id="arcade">
+  <!-- ARCADE_ENTRIES_START -->
+
+  <a class="game-card" href="orbit-pong.html">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="orbit-pong" data-color="#b388ff" data-bg="13,0,26"></canvas>
+      <div class="play-overlay"><div class="play-btn">Play</div></div>
     </div>
-    <div class="card-info">
-      <h2>Gravity-Wyrm</h2>
-      <div class="rules">B3/S23</div>
-      <div class="description">A unique mutation.</div>
-      <span class="theme-tag">Unknown</span>
+    <div class="game-info">
+      <h2 style="color: #b388ff">Orbit Pong</h2>
+      <div class="mashup" style="color: #b388ff">Pong &times; Gravity</div>
+      <div class="description">A gravitational planet curves every ball trajectory. Each return is a physics prediction puzzle.</div>
+      <span class="controls-tag">1-2 Players &middot; Gamepad</span>
     </div>
   </a>
 
-  <a class="card" href="orbit-pong.html">
-    <div class="card-preview">
-      <canvas class="preview-canvas" data-birth="3" data-survive="2,3" data-density="0.15" data-bg="10, 10, 15" data-cell="#d4a846" data-glow="#f5d576"></canvas>
+  <a class="game-card" href="gravity-wyrm.html">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="gravity-wyrm" data-color="#ff6b35" data-bg="26,10,0"></canvas>
+      <div class="play-overlay"><div class="play-btn">Play</div></div>
     </div>
-    <div class="card-info">
-      <h2>Orbit-Pong</h2>
-      <div class="rules">B3/S23</div>
-      <div class="description">A unique mutation.</div>
-      <span class="theme-tag">Unknown</span>
-    </div>
-  </a>
-
-  <a class="card" href="starwars.html">
-    <div class="card-preview">
-      <canvas class="preview-canvas" data-birth="2" data-survive="3,4,5" data-density="0.35" data-bg="26, 10, 0" data-cell="#ff6b35" data-glow="#ff9a6c"></canvas>
-    </div>
-    <div class="card-info">
-      <h2>Star Wars</h2>
-      <div class="rules">B2/S345</div>
-      <div class="description">Expanding empires of cells. Galactic conquest.</div>
-      <span class="theme-tag">Ember</span>
+    <div class="game-info">
+      <h2 style="color: #ff6b35">Gravity Wyrm</h2>
+      <div class="mashup" style="color: #ff6b35">Snake &times; Flappy Bird</div>
+      <div class="description">A snake that falls with gravity. Flap to rise, eat food, but your growing tail swings with physics.</div>
+      <span class="controls-tag">1 Player &middot; Gamepad</span>
     </div>
   </a>
 
-  <a class="card" href="wyrm-breaker.html">
-    <div class="card-preview">
-      <canvas class="preview-canvas" data-birth="3" data-survive="2,3" data-density="0.15" data-bg="10, 10, 15" data-cell="#d4a846" data-glow="#f5d576"></canvas>
+  <a class="game-card" href="wyrm-breaker.html">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="wyrm-breaker" data-color="#00ff41" data-bg="10,10,10"></canvas>
+      <div class="play-overlay"><div class="play-btn">Play</div></div>
     </div>
-    <div class="card-info">
-      <h2>Wyrm-Breaker</h2>
-      <div class="rules">B3/S23</div>
-      <div class="description">A unique mutation.</div>
-      <span class="theme-tag">Unknown</span>
+    <div class="game-info">
+      <h2 style="color: #00ff41">Wyrm Breaker</h2>
+      <div class="mashup" style="color: #00ff41">Snake &times; Breakout</div>
+      <div class="description">Your paddle is a growing snake. Break bricks, eat drops, but longer means slower. Classic dilemma.</div>
+      <span class="controls-tag">1 Player &middot; Gamepad</span>
     </div>
   </a>
-  <!-- GALLERY_ENTRIES_END -->
+
+  <!-- ARCADE_ENTRIES_END -->
+</div>
+
+<div class="section-divider">
+  <h3>Cellular Automata Archive</h3>
+  <hr>
+</div>
+
+<div class="archive-section">
+  <a href="gol/" class="archive-link">Explore Life Variations &rarr;</a>
+  <br>
+  <a href="/game-of-life-claws/" class="original-link">View Original &mdash; Game of Life: Claws</a>
 </div>
 
 <footer>
-  Dragon Castle Gallery<br>
-  Algorithmic Art &mdash; Est. 2026
+  Dragon Castle Arcade<br>
+  Each game is a unique concept &middot; Not clones, but mashups<br>
+  Est. 2026
 </footer>
 
 <script>
-// Mini Game of Life previews on each card
-document.querySelectorAll('.preview-canvas').forEach(canvas => {
+// Mini demo animations for each game card
+document.querySelectorAll('.demo-canvas').forEach(canvas => {
   const ctx = canvas.getContext('2d');
-  const cellSize = 6;
-  const birth = canvas.dataset.birth ? canvas.dataset.birth.split(',').map(Number) : [];
-  const survive = canvas.dataset.survive ? canvas.dataset.survive.split(',').map(Number) : [];
-  const density = parseFloat(canvas.dataset.density) || 0.15;
-  const bgRGB = canvas.dataset.bg || '10,10,15';
-  const cellColor = canvas.dataset.cell || '#d4a846';
-  const glowColor = canvas.dataset.glow || '#f5d576';
+  const gameType = canvas.dataset.game;
+  const color = canvas.dataset.color;
+  const bgRGB = canvas.dataset.bg;
 
-  // Set canvas resolution
   const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width * 2;
-  canvas.height = rect.height * 2;
-  ctx.scale(2, 2);
-
-  const w = rect.width;
-  const h = rect.height;
-  const cols = Math.floor(w / cellSize);
-  const rows = Math.floor(h / cellSize);
-
-  let grid = new Uint8Array(cols * rows);
-  let prev = new Uint8Array(cols * rows);
-
-  // Initialize random
-  for (let i = 0; i < grid.length; i++) {
-    grid[i] = Math.random() < density ? 1 : 0;
-  }
-
-  function idx(x, y) { return y * cols + x; }
-
-  function countN(x, y) {
-    let c = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-        c += grid[idx((x + dx + cols) % cols, (y + dy + rows) % rows)];
-      }
-    }
-    return c;
-  }
-
-  function step() {
-    prev.set(grid);
-    const next = new Uint8Array(cols * rows);
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const n = countN(x, y);
-        if (grid[idx(x, y)]) {
-          next[idx(x, y)] = survive.includes(n) ? 1 : 0;
-        } else {
-          next[idx(x, y)] = birth.includes(n) ? 1 : 0;
-        }
-      }
-    }
-    grid = next;
-  }
-
-  function draw() {
-    ctx.fillStyle = `rgba(${bgRGB}, 0.6)`;
-    ctx.fillRect(0, 0, w, h);
-    const gap = 1;
-    const s = cellSize - gap * 2;
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        if (grid[idx(x, y)]) {
-          ctx.fillStyle = !prev[idx(x, y)] ? glowColor : cellColor;
-          ctx.shadowColor = cellColor;
-          ctx.shadowBlur = 3;
-          ctx.fillRect(x * cellSize + gap, y * cellSize + gap, s, s);
-          ctx.shadowBlur = 0;
-        }
-      }
-    }
-  }
-
-  // Run a few initial steps silently, then animate
-  for (let i = 0; i < 5; i++) step();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const w = canvas.width;
+  const h = canvas.height;
 
   let frame = 0;
+
+  const demos = {
+
+    'orbit-pong': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      var cx = w / 2, cy = h / 2;
+
+      // Gravity well glow
+      var pulse = 0.4 + 0.2 * Math.sin(frame / 30);
+      ctx.globalAlpha = pulse * 0.08;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Well core
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Orbit rings
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.06;
+      for (var r = 20; r < 70; r += 16) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // Orbiting ball
+      var angle = frame / 40;
+      var radius = 35 + 10 * Math.sin(frame / 25);
+      var bx = cx + Math.cos(angle) * radius;
+      var by = cy + Math.sin(angle) * radius * 0.7;
+
+      // Trail
+      for (var i = 0; i < 8; i++) {
+        var ta = angle - i * 0.15;
+        var tr = 35 + 10 * Math.sin((frame - i * 3) / 25);
+        ctx.globalAlpha = (8 - i) / 8 * 0.3;
+        ctx.fillStyle = color;
+        ctx.fillRect(cx + Math.cos(ta) * tr - 1, cy + Math.sin(ta) * tr * 0.7 - 1, 3, 3);
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(bx - 2, by - 2, 5, 5);
+
+      // Paddles
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.6;
+      var py1 = cy + Math.sin(frame / 20) * 25;
+      ctx.fillRect(12, py1 - 15, 3, 30);
+      ctx.fillRect(w - 15, cy + Math.cos(frame / 18) * 20 - 15, 3, 30);
+      ctx.globalAlpha = 1;
+    },
+
+    'gravity-wyrm': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      // Pipes
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.3;
+      var pipeX1 = ((w + 40) - (frame * 1.5) % (w + 80));
+      var gap1 = h * 0.4;
+      ctx.fillRect(pipeX1, 0, 16, gap1 - 25);
+      ctx.fillRect(pipeX1, gap1 + 25, 16, h);
+      var pipeX2 = ((w + 40) - ((frame * 1.5 + 120) % (w + 80)));
+      var gap2 = h * 0.55;
+      ctx.fillRect(pipeX2, 0, 16, gap2 - 30);
+      ctx.fillRect(pipeX2, gap2 + 30, 16, h);
+      ctx.globalAlpha = 1;
+
+      // Snake head
+      var headX = w * 0.3;
+      var headY = h / 2 + Math.sin(frame / 15) * 25;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(headX, headY, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body segments
+      for (var i = 1; i <= 6; i++) {
+        var sx = headX - i * 8;
+        var sy = headY + Math.sin((frame - i * 5) / 15) * (25 + i * 2);
+        ctx.globalAlpha = 1 - i * 0.12;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 4 - i * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Food
+      var foodPulse = 0.5 + 0.5 * Math.sin(frame / 10);
+      ctx.globalAlpha = foodPulse;
+      ctx.beginPath();
+      ctx.arc(w * 0.65, h * 0.35, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    },
+
+    'wyrm-breaker': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      // Bricks
+      var brickW = 22, brickH = 6, pad = 2;
+      var cols = Math.floor((w - 20) / (brickW + pad));
+      ctx.fillStyle = color;
+      for (var r = 0; r < 4; r++) {
+        for (var c = 0; c < cols; c++) {
+          var idx = r * cols + c;
+          if ((frame > 30 && idx === 5) || (frame > 50 && idx === 12) ||
+              (frame > 70 && idx === 8) || (frame > 90 && idx === 15) ||
+              (frame > 110 && idx === 3)) continue;
+          ctx.globalAlpha = 0.5 + r * 0.12;
+          ctx.fillRect(10 + c * (brickW + pad), 20 + r * (brickH + pad), brickW, brickH);
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // Ball
+      var ballAngle = frame / 20;
+      var ballX = w / 2 + Math.cos(ballAngle) * (w * 0.3);
+      var ballY = h * 0.35 + Math.sin(ballAngle * 1.7) * (h * 0.2);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Snake paddle
+      var padX = w / 2 + Math.sin(frame / 25) * (w * 0.25);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(padX, h - 20, 5, 0, Math.PI * 2);
+      ctx.fill();
+      for (var j = 1; j <= 5; j++) {
+        ctx.globalAlpha = 1 - j * 0.15;
+        ctx.beginPath();
+        ctx.arc(padX - j * 6 + Math.sin((frame - j * 3) / 25) * 3, h - 20, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    },
+  };
+
+  var drawFn = demos[gameType];
+  if (!drawFn) return;
+
   function animate() {
-    if (frame % 3 === 0) step();
-    draw();
+    drawFn();
     frame++;
-    if (frame < 300) requestAnimationFrame(animate);
+    if (frame > 600) frame = 0;
+    requestAnimationFrame(animate);
   }
 
-  // Stagger starts
-  const delay = Math.random() * 500;
-  setTimeout(() => requestAnimationFrame(animate), delay);
+  var delay = Math.random() * 300;
+  setTimeout(function() { requestAnimationFrame(animate); }, delay);
 });
 </script>
 
