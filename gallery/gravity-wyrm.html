@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>GRAVITY WYRM | Dragon Castle Arcade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden;
+    background: #1a0a00;
+    color: #9a7a6a;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  /* CRT scanline overlay */
+  body::after {
+    content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 3px);
+    pointer-events: none; z-index: 100;
+  }
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 20px; pointer-events: none;
+  }
+  #header h1 {
+    font-size: 10px; font-weight: 600; letter-spacing: 4px;
+    text-transform: uppercase; color: #ff6b35; opacity: 0.6;
+  }
+  #header a {
+    color: #ff6b35; opacity: 0.4; text-decoration: none;
+    font-size: 9px; letter-spacing: 2px; pointer-events: auto;
+    transition: opacity 0.3s;
+  }
+  #header a:hover { opacity: 0.8; }
+  canvas {
+    border: 1px solid rgba(255, 107, 53, 0.12);
+    cursor: none;
+  }
+  #sigil {
+    position: fixed; bottom: 8px; right: 12px; z-index: 10;
+    font-size: 7px; letter-spacing: 3px; color: #ff6b35;
+    opacity: 0.1; pointer-events: none; text-align: right;
+  }
+  #controls-hint {
+    position: fixed; bottom: 8px; left: 12px; z-index: 10;
+    font-size: 7px; letter-spacing: 1px; color: #9a7a6a;
+    opacity: 0.3; pointer-events: none;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  canvas, #header { animation: fadeIn 1s ease; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>GRAVITY WYRM</h1>
+  <a href="/game-of-life-claws/gallery/">&larr; ARCADE</a>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="sigil">Dragon Castle Arcade<br>Est. 2026</div>
+<div id="controls-hint">Keyboard: Arrows/WASD + Space | Gamepad: Stick + A/B | P: Pause</div>
+
+<script>
+// ─── THEME ───
+const THEME = {
+  bg: '#1a0a00',
+  primary: '#ff6b35',
+  glow: '#ff9a6c',
+  text: '#9a7a6a',
+  textDim: 'rgba(255, 107, 53, 0.04)',
+  border: 'rgba(255, 107, 53, 0.12)',
+};
+const GAME_TITLE = 'GRAVITY WYRM';
+const GAME_SUBTITLE = 'Snake meets Flappy Bird';
+const GAME_CONTROLS = 'Flap: Space / W / Up / A-Button  |  P: Pause';
+
+// ─── ENGINE MODULES ───
+
+const rc = {
+  canvas: null, ctx: null, W: 320, H: 240,
+
+  init(w, h) {
+    this.W = w || 320; this.H = h || 240;
+    this.canvas = document.getElementById('game');
+    this.canvas.width = this.W; this.canvas.height = this.H;
+    this.canvas.style.imageRendering = 'pixelated';
+    this.canvas.style.imageRendering = 'crisp-edges';
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  },
+
+  resize() {
+    const a = this.W / this.H;
+    const mw = window.innerWidth * 0.92, mh = window.innerHeight * 0.78;
+    let w = mw, h = mw / a;
+    if (h > mh) { h = mh; w = mh * a; }
+    this.canvas.style.width = Math.floor(w) + 'px';
+    this.canvas.style.height = Math.floor(h) + 'px';
+  },
+
+  clear(color) {
+    this.ctx.fillStyle = color || THEME.bg;
+    this.ctx.fillRect(0, 0, this.W, this.H);
+  }
+};
+
+
+const gpad = {
+  pads: [null, null, null, null],
+  prev: [[], [], [], []],
+
+  poll() {
+    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (let i = 0; i < 4; i++) {
+      const g = gps[i];
+      if (!g) { this.pads[i] = null; continue; }
+      this.prev[i] = this.pads[i] ? this.pads[i].buttons.map(b => b.pressed) : [];
+      this.pads[i] = g;
+    }
+  },
+
+  axis(pi, ai, dz) {
+    dz = dz || 0.15;
+    const g = this.pads[pi];
+    if (!g || !g.axes[ai]) return 0;
+    const v = g.axes[ai];
+    return Math.abs(v) < dz ? 0 : v;
+  },
+
+  btn(pi, bi) {
+    const g = this.pads[pi];
+    return g && g.buttons[bi] ? g.buttons[bi].pressed : false;
+  },
+
+  justPressed(pi, bi) {
+    return this.btn(pi, bi) && !this.prev[pi][bi];
+  },
+
+  rumble(pi, ms, strong, weak) {
+    const g = this.pads[pi];
+    if (g && g.vibrationActuator) {
+      try { g.vibrationActuator.playEffect('dual-rumble', {
+        duration: ms || 100, strongMagnitude: strong || 0.3, weakMagnitude: weak || 0.1
+      }); } catch(e) {}
+    }
+  }
+};
+
+window.addEventListener('gamepadconnected', () => {});
+window.addEventListener('gamepaddisconnected', () => {});
+
+
+const input = {
+  keys: {},
+
+  init() {
+    document.addEventListener('keydown', e => { this.keys[e.code] = true; e.preventDefault(); });
+    document.addEventListener('keyup', e => { this.keys[e.code] = false; });
+  },
+
+  get p1() {
+    return {
+      up:     this.keys['ArrowUp'] || this.keys['KeyW'] || gpad.axis(0,1) < -0.5 || gpad.btn(0,12),
+      down:   this.keys['ArrowDown'] || this.keys['KeyS'] || gpad.axis(0,1) > 0.5 || gpad.btn(0,13),
+      left:   this.keys['ArrowLeft'] || this.keys['KeyA'] || gpad.axis(0,0) < -0.5 || gpad.btn(0,14),
+      right:  this.keys['ArrowRight'] || this.keys['KeyD'] || gpad.axis(0,0) > 0.5 || gpad.btn(0,15),
+      action: this.keys['Space'] || this.keys['KeyZ'] || gpad.btn(0,0),
+      alt:    this.keys['KeyX'] || this.keys['ShiftLeft'] || gpad.btn(0,1),
+      pause:  gpad.justPressed(0,9),
+      axisX:  gpad.axis(0,0),
+      axisY:  gpad.axis(0,1),
+    };
+  },
+
+  get p2() {
+    return {
+      up:     this.keys['KeyI'] || gpad.axis(1,1) < -0.5 || gpad.btn(1,12),
+      down:   this.keys['KeyK'] || gpad.axis(1,1) > 0.5 || gpad.btn(1,13),
+      left:   this.keys['KeyJ'] || gpad.axis(1,0) < -0.5 || gpad.btn(1,14),
+      right:  this.keys['KeyL'] || gpad.axis(1,0) > 0.5 || gpad.btn(1,15),
+      action: this.keys['KeyU'] || gpad.btn(1,0),
+      alt:    this.keys['KeyO'] || gpad.btn(1,1),
+      pause:  gpad.justPressed(1,9),
+      axisX:  gpad.axis(1,0),
+      axisY:  gpad.axis(1,1),
+    };
+  }
+};
+
+
+const particles = {
+  pool: [],
+  max: 200,
+
+  emit(x, y, count, color, spread, life) {
+    spread = spread || 3; life = life || 30;
+    for (let i = 0; i < count && this.pool.length < this.max; i++) {
+      this.pool.push({
+        x, y,
+        vx: (Math.random() - 0.5) * spread,
+        vy: (Math.random() - 0.5) * spread,
+        life: life + Math.random() * life * 0.5,
+        maxLife: life,
+        color: color || THEME.primary,
+        size: 1 + Math.random() * 2,
+      });
+    }
+  },
+
+  update() {
+    for (let i = this.pool.length - 1; i >= 0; i--) {
+      const p = this.pool[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vy += 0.02;
+      p.life--;
+      if (p.life <= 0) this.pool.splice(i, 1);
+    }
+  },
+
+  draw(ctx) {
+    for (const p of this.pool) {
+      const a = p.life / p.maxLife;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.floor(p.x), Math.floor(p.y), Math.ceil(p.size * a), Math.ceil(p.size * a));
+    }
+    ctx.globalAlpha = 1;
+  }
+};
+
+
+const audio = {
+  ctx: null, enabled: true,
+
+  init() {
+    const unlock = () => {
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+    document.addEventListener('click', unlock);
+    document.addEventListener('keydown', unlock);
+  },
+
+  beep(freq, dur, type, vol) {
+    if (!this.ctx || !this.enabled) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type || 'square';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || 0.08, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(); o.stop(this.ctx.currentTime + dur);
+  },
+
+  hit()     { this.beep(440, 0.08, 'square'); },
+  wall()    { this.beep(280, 0.06, 'triangle'); },
+  score()   { this.beep(880, 0.12, 'triangle'); setTimeout(() => this.beep(1100, 0.12, 'triangle'), 80); },
+  die()     { this.beep(150, 0.3, 'sawtooth', 0.12); },
+  powerup() { this.beep(600, 0.08, 'sine'); setTimeout(() => this.beep(900, 0.08, 'sine'), 60); },
+  start()   { this.beep(440, 0.08, 'square'); setTimeout(() => this.beep(660, 0.08, 'square'), 100); setTimeout(() => this.beep(880, 0.12, 'square'), 200); },
+};
+
+
+const game = {
+  state: 'title',  // title, playing, paused, gameover
+  score: 0,
+  hiScore: 0,
+  lives: 3,
+  level: 1,
+  _update: null,
+  _draw: null,
+  _lastTime: 0,
+  _targetFPS: 60,
+  _dt: 0,
+
+  run(updateFn, drawFn, fps) {
+    this._update = updateFn;
+    this._draw = drawFn;
+    this._targetFPS = fps || 60;
+    this._lastTime = performance.now();
+    this._loop(this._lastTime);
+  },
+
+  _loop(now) {
+    requestAnimationFrame(t => this._loop(t));
+    gpad.poll();
+    const elapsed = now - this._lastTime;
+    if (elapsed < 1000 / this._targetFPS) return;
+    this._lastTime = now;
+    this._dt = Math.min(elapsed / (1000 / this._targetFPS), 3);
+
+    // Pause toggle
+    if (input.p1.pause && this.state === 'playing') { this.state = 'paused'; return; }
+    if (input.p1.pause && this.state === 'paused') { this.state = 'playing'; return; }
+    if (input.keys['KeyP'] && this.state === 'playing') { this.state = 'paused'; input.keys['KeyP'] = false; return; }
+    if (input.keys['KeyP'] && this.state === 'paused') { this.state = 'playing'; input.keys['KeyP'] = false; return; }
+
+    if (this.state === 'playing') {
+      this._update(this._dt);
+    }
+    particles.update();
+    this._draw(rc.ctx);
+    particles.draw(rc.ctx);
+    this._drawHUD(rc.ctx);
+  },
+
+  _drawHUD(ctx) {
+    ctx.font = '8px monospace';
+
+    if (this.state === 'title') {
+      ctx.fillStyle = THEME.primary;
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(GAME_TITLE, rc.W/2, rc.H/2 - 30);
+      ctx.font = '8px monospace';
+      ctx.fillStyle = THEME.text;
+      ctx.fillText(GAME_SUBTITLE || 'Dragon Castle Arcade', rc.W/2, rc.H/2 - 10);
+      ctx.fillStyle = THEME.primary;
+      const blink = Math.floor(Date.now() / 500) % 2;
+      if (blink) ctx.fillText('PRESS START / SPACE', rc.W/2, rc.H/2 + 20);
+      ctx.font = '6px monospace';
+      ctx.fillStyle = THEME.textDim;
+      ctx.fillText(GAME_CONTROLS || 'Keyboard: Arrows/WASD + Space | Gamepad: Stick + A', rc.W/2, rc.H/2 + 45);
+      ctx.textAlign = 'left';
+      if (input.p1.action || input.keys['Enter']) { this.state = 'playing'; audio.start(); }
+      return;
+    }
+
+    if (this.state === 'paused') {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, rc.W, rc.H);
+      ctx.fillStyle = THEME.primary;
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText('PAUSED', rc.W/2, rc.H/2);
+      ctx.font = '8px monospace';
+      ctx.fillStyle = THEME.text;
+      ctx.fillText('Press P or Start', rc.W/2, rc.H/2 + 16);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    if (this.state === 'gameover') {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, rc.W, rc.H);
+      ctx.fillStyle = THEME.primary;
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText('GAME OVER', rc.W/2, rc.H/2 - 12);
+      ctx.font = '8px monospace';
+      ctx.fillText('Score: ' + this.score, rc.W/2, rc.H/2 + 6);
+      if (this.hiScore > 0) {
+        ctx.fillStyle = THEME.text;
+        ctx.fillText('Best: ' + this.hiScore, rc.W/2, rc.H/2 + 20);
+      }
+      ctx.fillStyle = THEME.primary;
+      const blink = Math.floor(Date.now() / 500) % 2;
+      if (blink) ctx.fillText('PRESS START / SPACE', rc.W/2, rc.H/2 + 40);
+      ctx.textAlign = 'left';
+      if (input.p1.action || input.keys['Enter']) {
+        if (this.score > this.hiScore) this.hiScore = this.score;
+        this.state = 'playing';
+        this.score = 0; this.lives = 3; this.level = 1;
+        if (typeof gameReset === 'function') gameReset();
+        audio.start();
+      }
+      return;
+    }
+
+    // In-game HUD
+    ctx.fillStyle = THEME.primary;
+    ctx.textAlign = 'left';
+    ctx.fillText('SCORE ' + this.score, 4, 10);
+    ctx.textAlign = 'right';
+    if (this.lives >= 0) ctx.fillText('x' + this.lives, rc.W - 4, 10);
+    ctx.textAlign = 'left';
+  },
+};
+
+
+// ─── GAME CODE ───
+
+// ═══════════════════════════════════════════════════
+//  GRAVITY WYRM — Snake meets Flappy Bird
+//  Dragon Castle Arcade · Est. 2026
+// ═══════════════════════════════════════════════════
+
+const wyrm = {
+  head: null,
+  segments: [],
+  gravity: 0.12,
+  flapPower: -2.8,
+  scrollSpeed: 1.2,
+  pipes: [],
+  food: [],
+  pipeTimer: 0,
+  pipeInterval: 120,
+  foodTimer: 0,
+  distance: 0,
+  bestDist: 0,
+  canFlap: true,
+  flapCooldown: 0,
+};
+
+// Juice
+let hitstop = 0;
+let flashTimer = 0;
+const shake = { x: 0, y: 0 };
+const popups = [];
+
+function addShake(n) { shake.x = (Math.random()-0.5)*n; shake.y = (Math.random()-0.5)*n; }
+function addPopup(x, y, text) { popups.push({ x, y, text, life: 40 }); }
+
+function gameInit() {
+  resetWyrm();
+}
+
+function resetWyrm() {
+  wyrm.head = { x: 60, y: rc.H / 2, vy: 0, r: 5 };
+  wyrm.segments = [];
+  // Start with 3 body segments
+  for (let i = 0; i < 3; i++) {
+    wyrm.segments.push({
+      x: wyrm.head.x - (i + 1) * 8,
+      y: wyrm.head.y,
+      vy: 0,
+    });
+  }
+  wyrm.pipes = [];
+  wyrm.food = [];
+  wyrm.pipeTimer = 80;
+  wyrm.foodTimer = 40;
+  wyrm.scrollSpeed = 1.2;
+  wyrm.distance = 0;
+  wyrm.canFlap = true;
+  wyrm.flapCooldown = 0;
+  hitstop = 0;
+  flashTimer = 0;
+  shake.x = 0; shake.y = 0;
+  popups.length = 0;
+}
+
+function gameReset() {
+  resetWyrm();
+  game.level = 1;
+}
+
+function spawnPipe() {
+  const gapSize = Math.max(55, 85 - game.level * 3);
+  const gapY = 40 + Math.random() * (rc.H - 80 - gapSize);
+  wyrm.pipes.push({
+    x: rc.W + 10,
+    gapY: gapY,
+    gapH: gapSize,
+    w: 20,
+    scored: false,
+  });
+}
+
+function spawnFood() {
+  // Place food in interesting positions — near pipes or in gaps
+  let fx = rc.W + 30 + Math.random() * 60;
+  let fy = 30 + Math.random() * (rc.H - 60);
+
+  // Bias toward pipe gaps for risk/reward
+  if (wyrm.pipes.length > 0) {
+    const lastPipe = wyrm.pipes[wyrm.pipes.length - 1];
+    if (Math.random() > 0.4) {
+      fx = lastPipe.x + lastPipe.w / 2 + Math.random() * 30;
+      fy = lastPipe.gapY + lastPipe.gapH * (0.2 + Math.random() * 0.6);
+    }
+  }
+
+  wyrm.food.push({ x: fx, y: fy, r: 4, pulse: Math.random() * Math.PI * 2 });
+}
+
+function gameUpdate(dt) {
+  if (hitstop > 0) { hitstop--; return; }
+
+  const h = wyrm.head;
+
+  // ── Input: Flap ──
+  if (wyrm.flapCooldown > 0) wyrm.flapCooldown -= dt;
+  const wantFlap = input.p1.action || input.p1.up;
+  if (wantFlap && wyrm.canFlap && wyrm.flapCooldown <= 0) {
+    h.vy = wyrm.flapPower;
+    wyrm.canFlap = false;
+    wyrm.flapCooldown = 8;
+    audio.hit();
+    particles.emit(h.x - 4, h.y + 3, 4, THEME.primary, 1.5, 10);
+  }
+  if (!wantFlap) wyrm.canFlap = true;
+
+  // ── Gravity on head ──
+  h.vy += wyrm.gravity * dt;
+  h.y += h.vy * dt;
+
+  // ── Clamp head to screen ──
+  if (h.y < h.r) { h.y = h.r; h.vy = 0; }
+  if (h.y > rc.H - h.r) {
+    // Hit floor — die
+    die();
+    return;
+  }
+
+  // ── Move segments (follow-the-leader with gravity) ──
+  let leader = h;
+  for (let i = 0; i < wyrm.segments.length; i++) {
+    const seg = wyrm.segments[i];
+    // Spring toward leader
+    const dx = leader.x - seg.x;
+    const dy = leader.y - seg.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const targetDist = 7;
+    if (dist > targetDist) {
+      seg.x += (dx / dist) * (dist - targetDist) * 0.6;
+      seg.y += (dy / dist) * (dist - targetDist) * 0.6;
+    }
+    // Subtle gravity on segments too
+    seg.vy = (seg.vy || 0) + wyrm.gravity * 0.3 * dt;
+    seg.y += seg.vy * dt;
+    seg.vy *= 0.95; // dampen
+
+    // Clamp segments
+    if (seg.y < 3) { seg.y = 3; seg.vy = 0; }
+    if (seg.y > rc.H - 3) { seg.y = rc.H - 3; seg.vy = 0; }
+
+    leader = seg;
+  }
+
+  // ── Scroll pipes + food ──
+  const spd = wyrm.scrollSpeed + game.level * 0.08;
+  wyrm.distance += spd * dt;
+
+  // Level up every 500 distance
+  const newLevel = Math.floor(wyrm.distance / 500) + 1;
+  if (newLevel > game.level) {
+    game.level = newLevel;
+    wyrm.scrollSpeed += 0.15;
+    addPopup(rc.W / 2, 40, 'LEVEL ' + game.level);
+    audio.powerup();
+  }
+
+  for (const pipe of wyrm.pipes) pipe.x -= spd * dt;
+  for (const f of wyrm.food) f.x -= spd * dt;
+
+  // ── Spawn pipes ──
+  wyrm.pipeTimer -= dt;
+  if (wyrm.pipeTimer <= 0) {
+    spawnPipe();
+    wyrm.pipeTimer = wyrm.pipeInterval - game.level * 5;
+    if (wyrm.pipeTimer < 60) wyrm.pipeTimer = 60;
+  }
+
+  // ── Spawn food ──
+  wyrm.foodTimer -= dt;
+  if (wyrm.foodTimer <= 0) {
+    spawnFood();
+    wyrm.foodTimer = 80 + Math.random() * 40;
+  }
+
+  // ── Pipe collision + scoring ──
+  for (let i = wyrm.pipes.length - 1; i >= 0; i--) {
+    const pipe = wyrm.pipes[i];
+
+    // Remove off-screen pipes
+    if (pipe.x + pipe.w < -10) {
+      wyrm.pipes.splice(i, 1);
+      continue;
+    }
+
+    // Score for passing
+    if (!pipe.scored && pipe.x + pipe.w < h.x) {
+      pipe.scored = true;
+      game.score += 50;
+      addPopup(pipe.x + pipe.w, pipe.gapY + pipe.gapH / 2, '+50');
+      audio.score();
+    }
+
+    // Head collision with pipe
+    if (h.x + h.r > pipe.x && h.x - h.r < pipe.x + pipe.w) {
+      if (h.y - h.r < pipe.gapY || h.y + h.r > pipe.gapY + pipe.gapH) {
+        die();
+        return;
+      }
+    }
+
+    // Segment collision with pipe
+    for (const seg of wyrm.segments) {
+      if (seg.x + 3 > pipe.x && seg.x - 3 < pipe.x + pipe.w) {
+        if (seg.y - 3 < pipe.gapY || seg.y + 3 > pipe.gapY + pipe.gapH) {
+          die();
+          return;
+        }
+      }
+    }
+  }
+
+  // ── Food collection ──
+  for (let i = wyrm.food.length - 1; i >= 0; i--) {
+    const f = wyrm.food[i];
+
+    // Remove off-screen
+    if (f.x < -10) { wyrm.food.splice(i, 1); continue; }
+
+    // Check collision with head
+    const dx = h.x - f.x;
+    const dy = h.y - f.y;
+    if (Math.sqrt(dx * dx + dy * dy) < h.r + f.r) {
+      // Eat! Grow the wyrm
+      const tail = wyrm.segments[wyrm.segments.length - 1] || h;
+      wyrm.segments.push({ x: tail.x - 8, y: tail.y, vy: 0 });
+      game.score += 100;
+      addPopup(f.x, f.y - 8, '+100');
+      particles.emit(f.x, f.y, 12, THEME.primary, 3, 20);
+      audio.powerup();
+      addShake(2);
+      wyrm.food.splice(i, 1);
+    }
+  }
+
+  // ── Popups ──
+  for (let i = popups.length - 1; i >= 0; i--) {
+    popups[i].y -= 0.5;
+    popups[i].life--;
+    if (popups[i].life <= 0) popups.splice(i, 1);
+  }
+}
+
+function die() {
+  // Explosion
+  particles.emit(wyrm.head.x, wyrm.head.y, 25, THEME.primary, 5, 30);
+  for (const seg of wyrm.segments) {
+    particles.emit(seg.x, seg.y, 4, THEME.primary, 3, 20);
+  }
+  audio.die();
+  addShake(8);
+  hitstop = 5;
+
+  if (wyrm.distance > wyrm.bestDist) wyrm.bestDist = wyrm.distance;
+  game.state = 'gameover';
+}
+
+function gameDraw(ctx) {
+  rc.clear();
+
+  ctx.save();
+  ctx.translate(Math.round(shake.x), Math.round(shake.y));
+  shake.x *= 0.85; shake.y *= 0.85;
+  if (Math.abs(shake.x) < 0.3) shake.x = 0;
+  if (Math.abs(shake.y) < 0.3) shake.y = 0;
+
+  const h = wyrm.head;
+
+  // ── Pipes ──
+  for (const pipe of wyrm.pipes) {
+    ctx.fillStyle = THEME.primary;
+    ctx.globalAlpha = 0.7;
+    // Top pipe
+    ctx.fillRect(Math.floor(pipe.x), 0, pipe.w, Math.floor(pipe.gapY));
+    // Bottom pipe
+    ctx.fillRect(Math.floor(pipe.x), Math.floor(pipe.gapY + pipe.gapH), pipe.w, rc.H);
+    ctx.globalAlpha = 1;
+
+    // Pipe edges (brighter)
+    ctx.fillStyle = THEME.glow || '#fff';
+    ctx.globalAlpha = 0.2;
+    ctx.fillRect(Math.floor(pipe.x), Math.floor(pipe.gapY) - 2, pipe.w, 2);
+    ctx.fillRect(Math.floor(pipe.x), Math.floor(pipe.gapY + pipe.gapH), pipe.w, 2);
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Food ──
+  for (const f of wyrm.food) {
+    const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200 + f.pulse);
+    ctx.fillStyle = THEME.primary;
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.arc(Math.floor(f.x), Math.floor(f.y), f.r, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner glow
+    ctx.fillStyle = '#fff';
+    ctx.globalAlpha = pulse * 0.5;
+    ctx.beginPath();
+    ctx.arc(Math.floor(f.x) - 1, Math.floor(f.y) - 1, f.r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Wyrm body segments ──
+  for (let i = wyrm.segments.length - 1; i >= 0; i--) {
+    const seg = wyrm.segments[i];
+    const a = 0.4 + 0.5 * ((wyrm.segments.length - i) / wyrm.segments.length);
+    const size = Math.max(3, 6 - i * 0.15);
+    ctx.fillStyle = THEME.primary;
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.arc(Math.floor(seg.x), Math.floor(seg.y), size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // ── Wyrm head ──
+  ctx.fillStyle = flashTimer > 0 ? '#fff' : THEME.primary;
+  if (flashTimer > 0) flashTimer--;
+  ctx.beginPath();
+  ctx.arc(Math.floor(h.x), Math.floor(h.y), h.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye
+  ctx.fillStyle = THEME.bg;
+  ctx.beginPath();
+  ctx.arc(Math.floor(h.x) + 2, Math.floor(h.y) - 1, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Pupil
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(Math.floor(h.x) + 2.5, Math.floor(h.y) - 1.5, 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── Distance meter (top-center) ──
+  ctx.fillStyle = THEME.primary;
+  ctx.globalAlpha = 0.3;
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(Math.floor(wyrm.distance) + 'm', rc.W / 2, 28);
+  ctx.globalAlpha = 1;
+
+  // ── Wyrm length indicator ──
+  ctx.font = '6px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = THEME.textDim;
+  ctx.globalAlpha = 0.5;
+  ctx.fillText('x' + (wyrm.segments.length + 1), rc.W - 4, 22);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+
+  // ── Level ──
+  if (game.level > 1) {
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = THEME.primary;
+    ctx.globalAlpha = 0.35;
+    ctx.fillText('LEVEL ' + game.level, rc.W / 2, rc.H - 4);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  // ── Popups ──
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'center';
+  for (const p of popups) {
+    ctx.globalAlpha = p.life / 40;
+    ctx.fillStyle = THEME.primary;
+    ctx.fillText(p.text, Math.floor(p.x), Math.floor(p.y));
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+
+  // ── Floor line ──
+  ctx.fillStyle = THEME.primary;
+  ctx.globalAlpha = 0.15;
+  ctx.fillRect(0, rc.H - 1, rc.W, 1);
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+}
+
+
+// ─── BOOT ───
+input.init();
+audio.init();
+rc.init(320, 240);
+if (typeof gameInit === 'function') gameInit();
+game.run(
+  typeof gameUpdate === 'function' ? gameUpdate : () => {},
+  typeof gameDraw === 'function' ? gameDraw : () => {},
+  60
+);
+</script>
+</body>
+</html>
