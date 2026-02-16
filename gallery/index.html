@@ -317,6 +317,19 @@
     </div>
   </a>
 
+  <a class="game-card" href="super-katzenklo-bros.html">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="katzenklo" data-color="#FFD700" data-bg="26,10,46"></canvas>
+      <div class="play-overlay"><div class="play-btn">Play</div></div>
+    </div>
+    <div class="game-info">
+      <h2 style="color: #FFD700">Super Katzenklo Bros</h2>
+      <div class="mashup" style="color: #FF69B4">Platformer &times; Meme Chaos</div>
+      <div class="description">Eine Katze springt zwischen Katzenklos, sammelt Fische und weicht bösen Gurken aus. much jump. very katzenklo. wow.</div>
+      <span class="controls-tag">1 Player &middot; Gamepad &middot; SNES</span>
+    </div>
+  </a>
+
   <!-- ARCADE_ENTRIES_END -->
 </div>
 
@@ -457,6 +470,62 @@ document.querySelectorAll('.demo-canvas').forEach(canvas => {
       ctx.beginPath();
       ctx.arc(w * 0.65, h * 0.35, 4, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
+    },
+
+    'katzenklo': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      // Ground
+      ctx.fillStyle = '#2a1a0a';
+      ctx.fillRect(0, h - 20, w, 20);
+
+      // Platforms (katzenklos)
+      ctx.fillStyle = '#8B7355';
+      ctx.fillRect(10, h - 40, 50, 12);
+      ctx.fillRect(w*0.35, h - 70, 50, 12);
+      ctx.fillRect(w*0.65, h - 50, 50, 12);
+
+      // Cat (bouncing)
+      var catX = w * 0.2 + Math.sin(frame / 20) * w * 0.25;
+      var catY = h - 55 + Math.abs(Math.sin(frame / 12)) * -30;
+      ctx.fillStyle = '#FFA500';
+      ctx.beginPath(); ctx.arc(catX, catY, 8, 0, Math.PI * 2); ctx.fill();
+      // Ears
+      ctx.beginPath();
+      ctx.moveTo(catX - 6, catY - 7); ctx.lineTo(catX - 3, catY - 14); ctx.lineTo(catX, catY - 7);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(catX + 1, catY - 7); ctx.lineTo(catX + 4, catY - 14); ctx.lineTo(catX + 7, catY - 7);
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#000';
+      ctx.fillRect(catX - 4, catY - 3, 2, 2);
+      ctx.fillRect(catX + 2, catY - 3, 2, 2);
+
+      // Fish
+      var fishPulse = 0.5 + 0.5 * Math.sin(frame / 8);
+      ctx.fillStyle = '#00CED1';
+      ctx.globalAlpha = fishPulse;
+      ctx.beginPath(); ctx.arc(w * 0.5, h - 85, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Cucumber
+      ctx.fillStyle = '#228B22';
+      var cucX = w * 0.75 + Math.sin(frame / 15) * 15;
+      ctx.beginPath(); ctx.ellipse(cucX, h - 58, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#FF0000';
+      ctx.fillRect(cucX - 3, cucX > w * 0.75 ? h - 60 : h - 59, 2, 2);
+      ctx.fillRect(cucX + 1, cucX > w * 0.75 ? h - 60 : h - 59, 2, 2);
+
+      // Meme text
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(frame / 20);
+      ctx.font = '8px Comic Sans MS, cursive';
+      ctx.textAlign = 'center';
+      ctx.fillText('much jump!', w / 2, 20);
+      ctx.fillText('wow', w * 0.8, 35);
       ctx.globalAlpha = 1;
     },
 

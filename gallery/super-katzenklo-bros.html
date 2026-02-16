@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SUPER KATZENKLO BROS</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #1a0a2e;
+    overflow: hidden;
+    font-family: 'Comic Sans MS', 'Chalkboard SE', cursive;
+    cursor: none;
+}
+canvas { display: block; }
+#ui {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+}
+#title-screen {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #1a0a2e 0%, #2d1b69 50%, #4a2c8a 100%);
+    z-index: 20;
+}
+#title-screen h1 {
+    font-size: 4em; color: #FFD700; text-shadow: 4px 4px 0 #8B4513, -2px -2px 0 #FF69B4;
+    animation: bounce 0.5s infinite alternate;
+    text-align: center;
+}
+#title-screen .subtitle {
+    font-size: 1.5em; color: #FF69B4; margin: 10px 0;
+    animation: rainbow 3s infinite;
+}
+#title-screen .meme-cat {
+    font-size: 8em; animation: spin 4s infinite linear;
+}
+#title-screen .start-text {
+    font-size: 2em; color: #00FF00; margin-top: 30px;
+    animation: blink 1s infinite;
+}
+#title-screen .controls {
+    font-size: 1em; color: #aaa; margin-top: 20px; text-align: center; line-height: 1.8;
+}
+#game-over {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.85); z-index: 30;
+}
+#game-over h2 { font-size: 3em; color: #FF0000; text-shadow: 3px 3px 0 #000; }
+#game-over .score-text { font-size: 2em; color: #FFD700; margin: 15px 0; }
+#game-over .meme-text { font-size: 1.5em; color: #FF69B4; }
+#game-over .restart { font-size: 1.5em; color: #00FF00; margin-top: 20px; animation: blink 1s infinite; }
+#hud {
+    position: absolute; top: 10px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; z-index: 15; pointer-events: none;
+}
+#hud .stat {
+    font-size: 1.4em; color: #FFD700; text-shadow: 2px 2px 0 #000;
+    background: rgba(0,0,0,0.5); padding: 5px 15px; border-radius: 10px;
+}
+#meme-popup {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 3em; color: #FF69B4; text-shadow: 3px 3px 0 #000;
+    pointer-events: none; opacity: 0; z-index: 25;
+    transition: opacity 0.2s;
+}
+@keyframes bounce { to { transform: translateY(-15px); } }
+@keyframes blink { 50% { opacity: 0.3; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rainbow {
+    0% { color: #FF0000; } 16% { color: #FF8800; } 33% { color: #FFFF00; }
+    50% { color: #00FF00; } 66% { color: #0088FF; } 83% { color: #8800FF; }
+    100% { color: #FF0000; }
+}
+</style>
+</head>
+<body>
+
+<div id="title-screen">
+    <div class="meme-cat">🐱</div>
+    <h1>SUPER<br>KATZENKLO<br>BROS</h1>
+    <div class="subtitle">~ das memigste Katzenspiel aller Zeiten ~</div>
+    <div class="start-text">LEERTASTE / KLICK zum Starten</div>
+    <div class="controls">
+        ⌨️ WASD/Pfeile = Laufen &amp; Springen | 🎮 Gamepad = D-Pad + Buttons<br>
+        🐟 Fische sammeln | 🥒 Gurken ausweichen | 💩 Katzenklos = Plattformen
+    </div>
+</div>
+
+<div id="game-over">
+    <h2>GAME OVER</h2>
+    <div class="meme-text" id="death-meme"></div>
+    <div class="score-text" id="final-score"></div>
+    <div class="restart">LEERTASTE zum Nochmal</div>
+</div>
+
+<div id="hud" style="display:none">
+    <div class="stat" id="score-display">🐟 0</div>
+    <div class="stat" id="lives-display">❤️ 9</div>
+    <div class="stat" id="combo-display"></div>
+</div>
+
+<div id="meme-popup"></div>
+
+<canvas id="game"></canvas>
+
+<script>
+// ============= SUPER KATZENKLO BROS =============
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ============= MEME DATA =============
+const MEMES = {
+    jump: ["much jump!", "SPRUNG!", "wow such hoch!", "nyoom!", "BOING!", "flyin cat!"],
+    collect: ["FISCH!", "om nom nom!", "lecker!", "yummy!", "+1 Fisch!", "tasty!", "mmmh!"],
+    death: [
+        "ded. 💀", "RIP Katze", "F in chat", "not stonks 📉",
+        "die Gurke hat gewonnen", "skill issue tbh", "L + ratio + Gurke",
+        "respawn in 3..2..1..", "Katze.exe hat aufgehoert", "oof",
+    ],
+    combo: ["COMBO!", "MEGA!", "ULTRA!", "UNGLAUBLICH!", "LEGENDE!", "GOTT-KATZE!"],
+    random: [
+        "ich bin Katze, höre mich miauen!", "Katzenklo macht Katze froh",
+        "Gurken sind der Feind!", "Fische regieren!", "MIAU!",
+        "wenn der Montag eine Gurke wäre", "Katzenklo > Katzengold",
+        "Panik! Gurke links!", "Kalm. Katzenklo gefunden.",
+    ],
+};
+
+const DEATH_MEMES = [
+    "such sad. very ded. wow.", "die Gurke war stärker 🥒💪",
+    "Katze hat 8 Leben übrig... oder?", "skill issue, ngl",
+    "L + ratio + kein Fisch", "Gurken-Apokalypse überlebt: NEIN",
+    "F 🐱", "WASTED", "du warst eine gute Katze",
+    "Respekt an die Gurke", "Katze.exe funktioniert nicht mehr",
+];
+
+// ============= AUDIO (Web Audio meme sounds) =============
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(freq, dur, type, vol) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+
+function sfxJump() { playSound(400, 0.15, 'square', 0.12); setTimeout(() => playSound(600, 0.1, 'square', 0.1), 50); }
+function sfxCollect() { playSound(800, 0.1, 'sine', 0.15); setTimeout(() => playSound(1200, 0.15, 'sine', 0.12), 80); }
+function sfxDeath() { playSound(200, 0.4, 'sawtooth', 0.2); setTimeout(() => playSound(100, 0.6, 'sawtooth', 0.15), 200); }
+function sfxCombo() { [800,1000,1200,1600].forEach((f,i) => setTimeout(() => playSound(f, 0.1, 'sine', 0.12), i*60)); }
+
+// ============= PIXEL ART SPRITES =============
+function drawCat(x, y, size, dir, frame) {
+    const s = size;
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir < 0) { ctx.scale(-1, 1); }
+
+    // Body
+    ctx.fillStyle = '#FF8C00';
+    ctx.fillRect(-s*0.4, -s*0.3, s*0.8, s*0.6);
+
+    // Head
+    ctx.fillStyle = '#FFA500';
+    ctx.beginPath();
+    ctx.arc(s*0.3, -s*0.4, s*0.35, 0, Math.PI*2);
+    ctx.fill();
+
+    // Ears
+    ctx.fillStyle = '#FF8C00';
+    ctx.beginPath();
+    ctx.moveTo(s*0.1, -s*0.7); ctx.lineTo(s*0.25, -s*0.9); ctx.lineTo(s*0.4, -s*0.7);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(s*0.35, -s*0.7); ctx.lineTo(s*0.5, -s*0.9); ctx.lineTo(s*0.6, -s*0.65);
+    ctx.fill();
+
+    // Inner ears
+    ctx.fillStyle = '#FFB6C1';
+    ctx.beginPath();
+    ctx.moveTo(s*0.18, -s*0.72); ctx.lineTo(s*0.27, -s*0.85); ctx.lineTo(s*0.36, -s*0.72);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(s*0.2, -s*0.42, s*0.08, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(s*0.42, -s*0.42, s*0.08, 0, Math.PI*2); ctx.fill();
+    // Eye shine
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(s*0.22, -s*0.44, s*0.03, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(s*0.44, -s*0.44, s*0.03, 0, Math.PI*2); ctx.fill();
+
+    // Nose
+    ctx.fillStyle = '#FF69B4';
+    ctx.beginPath();
+    ctx.arc(s*0.32, -s*0.35, s*0.04, 0, Math.PI*2); ctx.fill();
+
+    // Mouth (smile)
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(s*0.32, -s*0.3, s*0.08, 0.1, Math.PI-0.1);
+    ctx.stroke();
+
+    // Whiskers
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+    for (let w of [-1, 0, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s*0.1, -s*0.35 + w*s*0.05);
+        ctx.lineTo(-s*0.15, -s*0.35 + w*s*0.08);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s*0.55, -s*0.35 + w*s*0.05);
+        ctx.lineTo(s*0.8, -s*0.35 + w*s*0.08);
+        ctx.stroke();
+    }
+
+    // Legs (animated)
+    ctx.fillStyle = '#FF8C00';
+    const legAnim = Math.sin(frame * 0.3) * s * 0.1;
+    ctx.fillRect(-s*0.3, s*0.2, s*0.15, s*0.2 + legAnim);
+    ctx.fillRect(-s*0.05, s*0.2, s*0.15, s*0.2 - legAnim);
+    ctx.fillRect(s*0.15, s*0.2, s*0.15, s*0.2 + legAnim);
+    ctx.fillRect(s*0.35, s*0.2, s*0.15, s*0.2 - legAnim);
+
+    // Tail
+    ctx.strokeStyle = '#FF8C00'; ctx.lineWidth = s*0.08; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.4, -s*0.1);
+    ctx.quadraticCurveTo(-s*0.7, -s*0.4 + Math.sin(frame*0.15)*s*0.2, -s*0.6, -s*0.7);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawKatzenklo(x, y, w, h) {
+    // Litter box platform
+    ctx.fillStyle = '#8B7355';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#A0926B';
+    ctx.fillRect(x+4, y+4, w-8, h-8);
+    // Sand texture dots
+    ctx.fillStyle = '#C2B280';
+    for (let i = 0; i < 8; i++) {
+        const dx = x + 8 + Math.random() * (w-16);
+        const dy = y + 6 + Math.random() * (h-12);
+        ctx.fillRect(dx, dy, 3, 3);
+    }
+    // Label
+    ctx.fillStyle = '#654321';
+    ctx.font = `${Math.min(14, w/6)}px Comic Sans MS, cursive`;
+    ctx.textAlign = 'center';
+    ctx.fillText('💩 KATZENKLO', x + w/2, y + h/2 + 4);
+}
+
+function drawFish(x, y, size, frame) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(frame * 0.1) * 0.2);
+    // Body
+    ctx.fillStyle = '#00CED1';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size, size*0.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Tail
+    ctx.fillStyle = '#008B8B';
+    ctx.beginPath();
+    ctx.moveTo(-size*0.8, 0);
+    ctx.lineTo(-size*1.3, -size*0.5);
+    ctx.lineTo(-size*1.3, size*0.5);
+    ctx.closePath(); ctx.fill();
+    // Eye
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath(); ctx.arc(size*0.4, -size*0.1, size*0.15, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(size*0.45, -size*0.1, size*0.08, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+}
+
+function drawCucumber(x, y, size, frame) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(frame * 0.08) * 0.3);
+    // Body
+    ctx.fillStyle = '#228B22';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size*1.2, size*0.4, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Bumps
+    ctx.fillStyle = '#2E8B57';
+    for (let i = -3; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.arc(i*size*0.3, -size*0.15, size*0.08, 0, Math.PI*2);
+        ctx.fill();
+    }
+    // Evil eyes
+    ctx.fillStyle = '#FF0000';
+    ctx.beginPath(); ctx.arc(-size*0.2, -size*0.05, size*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(size*0.2, -size*0.05, size*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-size*0.18, -size*0.05, size*0.05, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(size*0.22, -size*0.05, size*0.05, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+}
+
+function drawPoop(x, y, size) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = '#8B4513';
+    // Stack
+    ctx.beginPath(); ctx.arc(0, size*0.1, size*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -size*0.15, size*0.3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -size*0.35, size*0.2, 0, Math.PI*2); ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath(); ctx.arc(-size*0.1, -size*0.15, size*0.08, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(size*0.1, -size*0.15, size*0.08, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-size*0.08, -size*0.15, size*0.04, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(size*0.12, -size*0.15, size*0.04, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+}
+
+// ============= GAME STATE =============
+let state = 'title'; // title, playing, dead
+let cat = { x: 200, y: 300, vx: 0, vy: 0, dir: 1, grounded: false, size: 30 };
+let camera = { x: 0, y: 0 };
+let score = 0, lives = 9, combo = 0, comboTimer = 0;
+let frame = 0;
+let platforms = [], fishes = [], cucumbers = [], particles = [], memeTexts = [];
+let highScore = 0;
+
+const GRAVITY = 0.6;
+const JUMP_FORCE = -14;
+const MOVE_SPEED = 5;
+const MAX_SPEED = 8;
+
+function generateWorld() {
+    platforms = [];
+    fishes = [];
+    cucumbers = [];
+
+    // Ground
+    platforms.push({ x: -500, y: canvas.height - 40, w: 600, h: 40 });
+
+    // Generate level chunks
+    let px = 200;
+    for (let i = 0; i < 200; i++) {
+        const gap = 80 + Math.random() * 120;
+        const py = canvas.height - 80 - Math.random() * 250;
+        const pw = 80 + Math.random() * 120;
+
+        platforms.push({ x: px + gap, y: py, w: pw, h: 25 });
+
+        // Fish on platform
+        if (Math.random() > 0.3) {
+            fishes.push({
+                x: px + gap + pw/2 + (Math.random()-0.5)*pw*0.6,
+                y: py - 30 - Math.random()*40,
+                alive: true,
+            });
+        }
+
+        // Extra fish floating
+        if (Math.random() > 0.6) {
+            fishes.push({
+                x: px + gap + pw/2,
+                y: py - 80 - Math.random()*60,
+                alive: true,
+            });
+        }
+
+        // Cucumber enemy (gets more frequent later)
+        if (i > 3 && Math.random() > Math.max(0.3, 0.8 - i*0.02)) {
+            cucumbers.push({
+                x: px + gap + pw/2,
+                y: py - 20,
+                vx: (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random()*2),
+                left: px + gap,
+                right: px + gap + pw,
+                alive: true,
+            });
+        }
+
+        px += gap + pw;
+    }
+}
+
+function reset() {
+    cat = { x: 200, y: canvas.height - 100, vx: 0, vy: 0, dir: 1, grounded: false, size: 30 };
+    camera = { x: 0, y: 0 };
+    score = 0; lives = 9; combo = 0; comboTimer = 0;
+    particles = []; memeTexts = [];
+    generateWorld();
+}
+
+// ============= PARTICLES =============
+function spawnParticles(x, y, color, count, speed) {
+    for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = speed * (0.5 + Math.random());
+        particles.push({
+            x, y,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd - 2,
+            life: 1,
+            decay: 0.02 + Math.random() * 0.03,
+            color,
+            size: 3 + Math.random() * 5,
+        });
+    }
+}
+
+function showMeme(text, x, y, color) {
+    memeTexts.push({ text, x, y, life: 1, color: color || '#FF69B4' });
+}
+
+// ============= INPUT =============
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (state === 'title' && (e.code === 'Space' || e.code === 'Enter')) {
+        audioCtx.resume();
+        state = 'playing';
+        reset();
+        document.getElementById('title-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+    }
+    if (state === 'dead' && (e.code === 'Space' || e.code === 'Enter')) {
+        state = 'playing';
+        reset();
+        document.getElementById('game-over').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+    }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Mouse/touch for title
+canvas.addEventListener('click', () => {
+    if (state === 'title') {
+        audioCtx.resume();
+        state = 'playing';
+        reset();
+        document.getElementById('title-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+    }
+    if (state === 'dead') {
+        state = 'playing';
+        reset();
+        document.getElementById('game-over').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+    }
+});
+
+// Gamepad
+let gamepadJump = false, gamepadLeft = false, gamepadRight = false;
+function pollGamepad() {
+    const gps = navigator.getGamepads();
+    if (!gps) return;
+    for (const gp of gps) {
+        if (!gp) continue;
+
+        // D-pad or left stick
+        gamepadLeft = gp.axes[0] < -0.3 || (gp.buttons[14] && gp.buttons[14].pressed);
+        gamepadRight = gp.axes[0] > 0.3 || (gp.buttons[15] && gp.buttons[15].pressed);
+
+        // Any face button or shoulder = jump (SNES: A=0, B=1, X=2, Y=3, L=4, R=5)
+        const jumpButtons = [0, 1, 2, 3, 4, 5, 12]; // face + shoulders + dpad up
+        let anyJump = false;
+        for (const bi of jumpButtons) {
+            if (gp.buttons[bi] && gp.buttons[bi].pressed) anyJump = true;
+        }
+        // D-pad up
+        if (gp.axes[1] < -0.5) anyJump = true;
+
+        if (anyJump && !gamepadJump) {
+            keys['_gamepadJump'] = true;
+        }
+        gamepadJump = anyJump;
+
+        // Start for menu
+        if (gp.buttons[9] && gp.buttons[9].pressed) {
+            if (state === 'title' || state === 'dead') {
+                keys['Space'] = true;
+            }
+        }
+    }
+}
+
+// ============= GAME LOGIC =============
+function update() {
+    if (state !== 'playing') return;
+    frame++;
+
+    pollGamepad();
+
+    // Horizontal movement
+    let moveDir = 0;
+    if (keys['ArrowLeft'] || keys['KeyA'] || gamepadLeft) moveDir = -1;
+    if (keys['ArrowRight'] || keys['KeyD'] || gamepadRight) moveDir = 1;
+
+    if (moveDir !== 0) {
+        cat.vx += moveDir * MOVE_SPEED * 0.3;
+        cat.dir = moveDir;
+    } else {
+        cat.vx *= 0.85;
+    }
+    cat.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, cat.vx));
+
+    // Jump
+    if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || keys['_gamepadJump']) && cat.grounded) {
+        cat.vy = JUMP_FORCE;
+        cat.grounded = false;
+        sfxJump();
+        spawnParticles(cat.x, cat.y + cat.size*0.3, '#FFD700', 5, 3);
+        if (Math.random() > 0.6) {
+            showMeme(MEMES.jump[Math.floor(Math.random()*MEMES.jump.length)], cat.x, cat.y - 40);
+        }
+    }
+    keys['_gamepadJump'] = false;
+
+    // Gravity
+    cat.vy += GRAVITY;
+    cat.x += cat.vx;
+    cat.y += cat.vy;
+
+    // Platform collision
+    cat.grounded = false;
+    for (const p of platforms) {
+        if (cat.x + cat.size*0.3 > p.x && cat.x - cat.size*0.3 < p.x + p.w) {
+            // Landing on top
+            if (cat.vy > 0 && cat.y + cat.size*0.4 > p.y && cat.y + cat.size*0.4 - cat.vy <= p.y + 5) {
+                cat.y = p.y - cat.size*0.4;
+                cat.vy = 0;
+                cat.grounded = true;
+            }
+        }
+    }
+
+    // Fish collection
+    for (const f of fishes) {
+        if (!f.alive) continue;
+        const dx = cat.x - f.x, dy = cat.y - f.y;
+        if (Math.sqrt(dx*dx + dy*dy) < cat.size + 15) {
+            f.alive = false;
+            score++;
+            combo++;
+            comboTimer = 60;
+            sfxCollect();
+            spawnParticles(f.x, f.y, '#00CED1', 8, 4);
+            showMeme(MEMES.collect[Math.floor(Math.random()*MEMES.collect.length)], f.x, f.y - 20, '#00CED1');
+
+            if (combo >= 3 && combo % 3 === 0) {
+                sfxCombo();
+                const ci = Math.min(Math.floor(combo/3)-1, MEMES.combo.length-1);
+                showMeme(MEMES.combo[ci], cat.x, cat.y - 80, '#FFD700');
+            }
+
+            // Random meme
+            if (Math.random() > 0.85) {
+                showMeme(MEMES.random[Math.floor(Math.random()*MEMES.random.length)], cat.x, cat.y - 60, '#FF69B4');
+            }
+        }
+    }
+
+    // Cucumber collision
+    for (const c of cucumbers) {
+        if (!c.alive) continue;
+        c.x += c.vx;
+        if (c.x < c.left || c.x > c.right) c.vx *= -1;
+
+        const dx = cat.x - c.x, dy = cat.y - c.y;
+        if (Math.sqrt(dx*dx + dy*dy) < cat.size + 15) {
+            // Stomped from above?
+            if (cat.vy > 0 && cat.y < c.y - 10) {
+                c.alive = false;
+                cat.vy = JUMP_FORCE * 0.7;
+                score += 5;
+                sfxCollect();
+                spawnParticles(c.x, c.y, '#228B22', 12, 5);
+                showMeme("GURKE ZERSTÖRT! 🥒💥", c.x, c.y - 30, '#00FF00');
+            } else {
+                // Hit by cucumber!
+                lives--;
+                sfxDeath();
+                spawnParticles(cat.x, cat.y, '#FF0000', 15, 6);
+                combo = 0;
+
+                if (lives <= 0) {
+                    die();
+                    return;
+                } else {
+                    // Knockback
+                    cat.vx = -cat.dir * 10;
+                    cat.vy = JUMP_FORCE;
+                    showMeme("AUTSCH! 🥒😿 " + lives + " Leben übrig", cat.x, cat.y - 50, '#FF0000');
+                }
+            }
+        }
+    }
+
+    // Combo timer
+    if (comboTimer > 0) {
+        comboTimer--;
+        if (comboTimer <= 0) combo = 0;
+    }
+
+    // Fall death
+    if (cat.y > canvas.height + 200) {
+        lives--;
+        sfxDeath();
+        if (lives <= 0) {
+            die();
+        } else {
+            // Respawn on nearest platform
+            let best = platforms[0];
+            let bestDist = Infinity;
+            for (const p of platforms) {
+                const d = Math.abs(p.x + p.w/2 - cat.x);
+                if (d < bestDist && p.y < canvas.height) {
+                    bestDist = d; best = p;
+                }
+            }
+            cat.x = best.x + best.w/2;
+            cat.y = best.y - cat.size;
+            cat.vx = 0; cat.vy = 0;
+            combo = 0;
+            showMeme("Knapp! " + lives + " Leben 😿", cat.x, cat.y - 40, '#FF4444');
+        }
+    }
+
+    // Camera follows cat
+    camera.x += (cat.x - canvas.width * 0.35 - camera.x) * 0.08;
+    camera.y += (cat.y - canvas.height * 0.55 - camera.y) * 0.05;
+
+    // Update particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.1;
+        p.life -= p.decay;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Update meme texts
+    for (let i = memeTexts.length - 1; i >= 0; i--) {
+        memeTexts[i].y -= 1.5;
+        memeTexts[i].life -= 0.015;
+        if (memeTexts[i].life <= 0) memeTexts.splice(i, 1);
+    }
+
+    // Update HUD
+    document.getElementById('score-display').textContent = '🐟 ' + score;
+    document.getElementById('lives-display').textContent = '❤️ ' + lives;
+    document.getElementById('combo-display').textContent = combo >= 2 ? '🔥 x' + combo : '';
+}
+
+function die() {
+    state = 'dead';
+    if (score > highScore) highScore = score;
+    document.getElementById('game-over').style.display = 'flex';
+    document.getElementById('death-meme').textContent = DEATH_MEMES[Math.floor(Math.random()*DEATH_MEMES.length)];
+    document.getElementById('final-score').textContent = '🐟 ' + score + ' Fische | Highscore: ' + highScore;
+    document.getElementById('hud').style.display = 'none';
+}
+
+// ============= RENDER =============
+function drawBackground() {
+    // Sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#1a0a2e');
+    grad.addColorStop(0.4, '#2d1b69');
+    grad.addColorStop(0.7, '#4a2c8a');
+    grad.addColorStop(1, '#1a0a2e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Stars
+    ctx.fillStyle = '#FFF';
+    for (let i = 0; i < 80; i++) {
+        const sx = ((i * 137.5 + camera.x * 0.05) % (canvas.width + 100)) - 50;
+        const sy = ((i * 97.3 + camera.y * 0.02) % (canvas.height * 0.6));
+        const ss = 1 + Math.sin(frame * 0.05 + i) * 0.5;
+        ctx.globalAlpha = 0.5 + Math.sin(frame * 0.03 + i * 1.7) * 0.3;
+        ctx.fillRect(sx, sy, ss, ss);
+    }
+    ctx.globalAlpha = 1;
+
+    // Moon
+    ctx.fillStyle = '#FFE4B5';
+    ctx.beginPath();
+    ctx.arc(canvas.width - 120 + camera.x * 0.01, 100 + camera.y * 0.01, 50, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a0a2e';
+    ctx.beginPath();
+    ctx.arc(canvas.width - 100 + camera.x * 0.01, 90 + camera.y * 0.01, 45, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Background hills
+    ctx.fillStyle = '#1a1040';
+    for (let i = 0; i < 20; i++) {
+        const hx = i * 300 - (camera.x * 0.15) % 300 - 300;
+        ctx.beginPath();
+        ctx.arc(hx, canvas.height - 20, 180 + Math.sin(i*2.3)*50, Math.PI, 0);
+        ctx.fill();
+    }
+}
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (state === 'title') {
+        drawBackground();
+        requestAnimationFrame(render);
+        return;
+    }
+
+    drawBackground();
+
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
+
+    // Platforms
+    for (const p of platforms) {
+        if (p.x + p.w > camera.x - 100 && p.x < camera.x + canvas.width + 100) {
+            drawKatzenklo(p.x, p.y, p.w, p.h);
+        }
+    }
+
+    // Fishes
+    for (const f of fishes) {
+        if (f.alive) {
+            drawFish(f.x, f.y, 12, frame);
+        }
+    }
+
+    // Cucumbers
+    for (const c of cucumbers) {
+        if (c.alive) {
+            drawCucumber(c.x, c.y, 18, frame);
+        }
+    }
+
+    // Particles
+    for (const p of particles) {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size * p.life, p.size * p.life);
+    }
+    ctx.globalAlpha = 1;
+
+    // Meme texts
+    for (const m of memeTexts) {
+        ctx.globalAlpha = m.life;
+        ctx.fillStyle = m.color;
+        ctx.font = 'bold 22px Comic Sans MS, cursive';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+        ctx.strokeText(m.text, m.x, m.y);
+        ctx.fillText(m.text, m.x, m.y);
+    }
+    ctx.globalAlpha = 1;
+
+    // Cat
+    drawCat(cat.x, cat.y, cat.size, cat.dir, frame);
+
+    ctx.restore();
+
+    // Combo display (screen-space)
+    if (combo >= 5) {
+        ctx.save();
+        ctx.font = 'bold 60px Comic Sans MS, cursive';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = `hsl(${frame * 5 % 360}, 100%, 60%)`;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
+        const comboText = 'x' + combo + ' COMBO!';
+        ctx.strokeText(comboText, canvas.width/2, 100);
+        ctx.fillText(comboText, canvas.width/2, 100);
+        ctx.restore();
+    }
+
+    requestAnimationFrame(render);
+}
+
+// ============= GAME LOOP =============
+function gameLoop() {
+    update();
+    setTimeout(gameLoop, 1000/60);
+}
+
+gameLoop();
+render();
+</script>
+</body>
+</html>
