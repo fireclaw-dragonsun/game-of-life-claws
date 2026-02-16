@@ -70,8 +70,11 @@ canvas { display: block; }
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const ZOOM = 2.5;
 let groundY = 0;
-function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; groundY = canvas.height * 0.78; }
+function vw() { return canvas.width / ZOOM; }
+function vh() { return canvas.height / ZOOM; }
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; groundY = vh() * 0.78; }
 resize(); window.addEventListener('resize', resize);
 
 // ============= CONSTANTS =============
@@ -145,7 +148,7 @@ let score = 0, lives = 9, combo = 0, comboTimer = 0, frame = 0, highScore = 0;
 let platforms = [], fishes = [], cucumbers = [], boxes = [], lasers = [], particles = [], memeTexts = [], signs = [];
 let nyanTrail = []; // rainbow trail for combos
 let speedBoost = 0;
-function getGroundY() { return canvas.height * GROUND_Y_RATIO; }
+function getGroundY() { return vh() * GROUND_Y_RATIO; }
 
 // ============= WORLD GENERATION =============
 function generateWorld() {
@@ -230,22 +233,22 @@ function drawSky() {
     grad.addColorStop(0.5, '#6da6fc');
     grad.addColorStop(1, '#92c4ff');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, groundY);
+    ctx.fillRect(0, 0, vw(), groundY);
 
     // Sun
-    const sunX = canvas.width - 100 + Math.sin(frame * 0.003) * 20;
-    const sunY = 80;
+    const sunX = vw() - 50 + Math.sin(frame * 0.003) * 10;
+    const sunY = 40;
     ctx.fillStyle = '#FFF8DC';
-    ctx.beginPath(); ctx.arc(sunX - camera.x * 0.02, sunY, 45, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sunX - camera.x * 0.02, sunY, 22, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#FFD700';
-    ctx.beginPath(); ctx.arc(sunX - camera.x * 0.02, sunY, 38, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sunX - camera.x * 0.02, sunY, 18, 0, Math.PI*2); ctx.fill();
     // Sun rays
-    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 3; ctx.globalAlpha = 0.3;
+    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.3;
     for (let i = 0; i < 12; i++) {
         const a = (i/12) * Math.PI*2 + frame*0.01;
         ctx.beginPath();
-        ctx.moveTo(sunX - camera.x*0.02 + Math.cos(a)*48, sunY + Math.sin(a)*48);
-        ctx.lineTo(sunX - camera.x*0.02 + Math.cos(a)*62, sunY + Math.sin(a)*62);
+        ctx.moveTo(sunX - camera.x*0.02 + Math.cos(a)*24, sunY + Math.sin(a)*24);
+        ctx.lineTo(sunX - camera.x*0.02 + Math.cos(a)*32, sunY + Math.sin(a)*32);
         ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -253,9 +256,9 @@ function drawSky() {
     // Clouds (parallax)
     ctx.fillStyle = '#fff';
     for (let i = 0; i < 15; i++) {
-        const cx = ((i * 350 + 100) - camera.x * 0.1) % (canvas.width + 400) - 200;
-        const cy = 50 + (i * 73) % 120;
-        const cw = 60 + (i * 31) % 50;
+        const cx = ((i * 180 + 50) - camera.x * 0.1) % (vw() + 200) - 100;
+        const cy = 20 + (i * 37) % 60;
+        const cw = 30 + (i * 17) % 25;
         ctx.globalAlpha = 0.8;
         ctx.beginPath(); ctx.arc(cx, cy, cw*0.3, 0, Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.arc(cx + cw*0.25, cy - cw*0.1, cw*0.35, 0, Math.PI*2); ctx.fill();
@@ -266,17 +269,17 @@ function drawSky() {
     // Background hills (parallax)
     ctx.fillStyle = '#5ab83a';
     for (let i = 0; i < 20; i++) {
-        const hx = i * 280 - (camera.x * 0.2) % 280 - 280;
+        const hx = i * 140 - (camera.x * 0.2) % 140 - 140;
         ctx.beginPath();
-        ctx.arc(hx, groundY + 10, 140 + Math.sin(i*1.7)*40, Math.PI, 0);
+        ctx.arc(hx, groundY + 5, 70 + Math.sin(i*1.7)*20, Math.PI, 0);
         ctx.fill();
     }
     // Foreground hills
     ctx.fillStyle = '#4da832';
     for (let i = 0; i < 25; i++) {
-        const hx = i * 200 - (camera.x * 0.35) % 200 - 200;
+        const hx = i * 100 - (camera.x * 0.35) % 100 - 100;
         ctx.beginPath();
-        ctx.arc(hx, groundY + 10, 90 + Math.sin(i*2.3)*30, Math.PI, 0);
+        ctx.arc(hx, groundY + 5, 45 + Math.sin(i*2.3)*15, Math.PI, 0);
         ctx.fill();
     }
 }
@@ -284,18 +287,17 @@ function drawSky() {
 function drawGround() {
     // Main ground
     ctx.fillStyle = '#4da832';
-    ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+    ctx.fillRect(0, groundY, vw(), vh() - groundY);
     // Darker earth below
     ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(0, groundY + 18, canvas.width, canvas.height - groundY - 18);
+    ctx.fillRect(0, groundY + 10, vw(), vh() - groundY - 10);
     // Grass tufts on top
     ctx.fillStyle = '#5cc43c';
-    for (let i = 0; i < canvas.width + 20; i += 12) {
-        const gx = i + ((camera.x * 0.5) % 12);
+    for (let i = 0; i < vw() + 20; i += 8) {
         ctx.beginPath();
-        ctx.moveTo(i - 4, groundY + 2);
-        ctx.lineTo(i, groundY - 4 - Math.sin(frame*0.05 + i*0.1)*2);
-        ctx.lineTo(i + 4, groundY + 2);
+        ctx.moveTo(i - 3, groundY + 1);
+        ctx.lineTo(i, groundY - 3 - Math.sin(frame*0.05 + i*0.1)*1.5);
+        ctx.lineTo(i + 3, groundY + 1);
         ctx.fill();
     }
 }
@@ -685,7 +687,7 @@ function update() {
     if (comboTimer > 0) { comboTimer--; if (comboTimer <= 0) { combo = 0; nyanTrail = []; } }
 
     // Camera
-    camera.x += (cat.x - canvas.width * 0.35 - camera.x) * 0.08;
+    camera.x += (cat.x - vw() * 0.35 - camera.x) * 0.08;
     camera.y = 0; // fixed vertical camera (ground-based game)
 
     // Particles
@@ -717,7 +719,10 @@ function die() {
 // ============= RENDER =============
 function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (state === 'title') { drawSky(); drawGround(); requestAnimationFrame(render); return; }
+    ctx.save();
+    ctx.scale(ZOOM, ZOOM);
+
+    if (state === 'title') { drawSky(); drawGround(); ctx.restore(); requestAnimationFrame(render); return; }
 
     drawSky();
     drawGround();
@@ -727,7 +732,7 @@ function render() {
 
     // Signs (background, behind everything)
     for (const s of signs) {
-        if (s.x > camera.x - 200 && s.x < camera.x + canvas.width + 200) drawSign(s);
+        if (s.x > camera.x - 200 && s.x < camera.x + vw() + 200) drawSign(s);
     }
 
     // Nyan trail
@@ -735,7 +740,7 @@ function render() {
 
     // Platforms
     for (const p of platforms) {
-        if (p.x + p.w > camera.x - 50 && p.x < camera.x + canvas.width + 50) drawKatzenklo(p.x, p.y, p.w, p.h);
+        if (p.x + p.w > camera.x - 50 && p.x < camera.x + vw() + 50) drawKatzenklo(p.x, p.y, p.w, p.h);
     }
 
     // Boxes
@@ -771,14 +776,16 @@ function render() {
 
     ctx.restore();
 
-    // Screen-space combo display
+    // Screen-space combo display (in zoomed coordinates)
     if (combo >= 5) {
-        ctx.font = 'bold 50px Comic Sans MS, cursive'; ctx.textAlign = 'center';
+        ctx.font = 'bold 22px Comic Sans MS, cursive'; ctx.textAlign = 'center';
         ctx.fillStyle = `hsl(${frame*5%360}, 100%, 60%)`;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
-        ctx.strokeText('x' + combo + ' COMBO!', canvas.width/2, 90);
-        ctx.fillText('x' + combo + ' COMBO!', canvas.width/2, 90);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.strokeText('x' + combo + ' COMBO!', vw()/2, 40);
+        ctx.fillText('x' + combo + ' COMBO!', vw()/2, 40);
     }
+
+    ctx.restore(); // restore ZOOM scale
 
     requestAnimationFrame(render);
 }
