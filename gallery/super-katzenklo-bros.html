@@ -74,7 +74,7 @@ const ZOOM = 2.5;
 let groundY = 0;
 function vw() { return canvas.width / ZOOM; }
 function vh() { return canvas.height / ZOOM; }
-function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; groundY = vh() * 0.78; }
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; groundY = vh() * GROUND_Y_RATIO; }
 resize(); window.addEventListener('resize', resize);
 
 // ============= CONSTANTS =============
@@ -82,7 +82,7 @@ const GRAVITY = 0.55;
 const JUMP_FORCE = -13;
 const MOVE_SPEED = 5;
 const MAX_SPEED = 7;
-const GROUND_Y_RATIO = 0.72; // ground starts at 72% of screen height
+const GROUND_Y_RATIO = 0.88; // ground at 88% — thin earth strip at bottom
 const TILE = 32;
 
 // ============= MEME DATA =============
@@ -158,7 +158,8 @@ function generateWorld() {
     let px = 300;
     for (let i = 0; i < 300; i++) {
         const spacing = 120 + Math.random() * 180;
-        const py = groundY - 60 - Math.random() * 150;
+        const maxHeight = Math.min(60 + i * 1.5, 250); // platforms get higher as you progress
+        const py = groundY - 50 - Math.random() * maxHeight;
         const pw = 70 + Math.random() * 100;
 
         platforms.push({ x: px, y: py, w: pw, h: 22 });
@@ -219,7 +220,7 @@ function generateWorld() {
 function reset() {
     groundY = getGroundY();
     cat = { x: 100, y: groundY - 30, vx: 0, vy: 0, dir: 1, grounded: true, size: 28 };
-    camera = { x: 0, y: 0 };
+    camera = { x: 0, y: groundY - vh() * 0.88 };
     score = 0; lives = 9; combo = 0; comboTimer = 0; speedBoost = 0;
     particles = []; memeTexts = []; nyanTrail = [];
     generateWorld();
@@ -227,17 +228,19 @@ function reset() {
 
 // ============= DRAWING FUNCTIONS =============
 function drawSky() {
-    // Blue sky gradient
-    const grad = ctx.createLinearGradient(0, 0, 0, groundY);
-    grad.addColorStop(0, '#4a8af5');
-    grad.addColorStop(0.5, '#6da6fc');
+    // Blue sky gradient — extend high above to cover vertical scrolling
+    const skyTop = groundY - vh() * 2;
+    const grad = ctx.createLinearGradient(0, skyTop, 0, groundY);
+    grad.addColorStop(0, '#3a7ae5');
+    grad.addColorStop(0.3, '#4a8af5');
+    grad.addColorStop(0.7, '#6da6fc');
     grad.addColorStop(1, '#92c4ff');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, vw(), groundY);
+    ctx.fillRect(0, skyTop, vw(), groundY - skyTop);
 
-    // Sun
+    // Sun (stays relative to viewport via camera.y offset)
     const sunX = vw() - 50 + Math.sin(frame * 0.003) * 10;
-    const sunY = 40;
+    const sunY = camera.y + 40;
     ctx.fillStyle = '#FFF8DC';
     ctx.beginPath(); ctx.arc(sunX - camera.x * 0.02, sunY, 22, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#FFD700';
@@ -253,11 +256,11 @@ function drawSky() {
     }
     ctx.globalAlpha = 1;
 
-    // Clouds (parallax)
+    // Clouds (parallax, relative to viewport)
     ctx.fillStyle = '#fff';
     for (let i = 0; i < 15; i++) {
         const cx = ((i * 180 + 50) - camera.x * 0.1) % (vw() + 200) - 100;
-        const cy = 20 + (i * 37) % 60;
+        const cy = camera.y + 20 + (i * 37) % 60;
         const cw = 30 + (i * 17) % 25;
         ctx.globalAlpha = 0.8;
         ctx.beginPath(); ctx.arc(cx, cy, cw*0.3, 0, Math.PI*2); ctx.fill();
@@ -285,12 +288,12 @@ function drawSky() {
 }
 
 function drawGround() {
-    // Main ground
+    // Main ground — thin green strip
     ctx.fillStyle = '#4da832';
-    ctx.fillRect(0, groundY, vw(), vh() - groundY);
-    // Darker earth below
+    ctx.fillRect(0, groundY, vw(), 8);
+    // Darker earth below — extends far down to cover any camera position
     ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(0, groundY + 10, vw(), vh() - groundY - 10);
+    ctx.fillRect(0, groundY + 8, vw(), vh() * 2);
     // Grass tufts on top
     ctx.fillStyle = '#5cc43c';
     for (let i = 0; i < vw() + 20; i += 8) {
@@ -686,9 +689,12 @@ function update() {
     // Combo decay
     if (comboTimer > 0) { comboTimer--; if (comboTimer <= 0) { combo = 0; nyanTrail = []; } }
 
-    // Camera
+    // Camera — follows cat both horizontally and vertically
     camera.x += (cat.x - vw() * 0.35 - camera.x) * 0.08;
-    camera.y = 0; // fixed vertical camera (ground-based game)
+    // Y camera: follow cat upward, but don't go below ground level
+    const targetY = cat.y - vh() * 0.55;
+    const maxCamY = groundY - vh() * 0.88; // default ground-level view
+    camera.y += (Math.min(targetY, maxCamY) - camera.y) * 0.1;
 
     // Particles
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -722,13 +728,17 @@ function render() {
     ctx.save();
     ctx.scale(ZOOM, ZOOM);
 
-    if (state === 'title') { drawSky(); drawGround(); ctx.restore(); requestAnimationFrame(render); return; }
+    if (state === 'title') { camera = camera || {x:0, y:0}; ctx.save(); ctx.translate(0, -camera.y); drawSky(); drawGround(); ctx.restore(); ctx.restore(); requestAnimationFrame(render); return; }
 
+    // Translate for vertical camera (sky/ground are screen-relative but shift with camera.y)
+    ctx.save();
+    ctx.translate(0, -camera.y);
     drawSky();
     drawGround();
+    ctx.restore();
 
     ctx.save();
-    ctx.translate(-camera.x, 0);
+    ctx.translate(-camera.x, -camera.y);
 
     // Signs (background, behind everything)
     for (const s of signs) {
