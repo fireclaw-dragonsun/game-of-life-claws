@@ -18,9 +18,17 @@ canvas { display: block; }
     font-size: 3.5em; color: #FFD700; text-shadow: 4px 4px 0 #c84100, -1px -1px 0 #fff;
     animation: bounce 0.5s infinite alternate; text-align: center; line-height: 1.1;
 }
-#title-screen .subtitle { font-size: 1.3em; color: #fff; margin: 10px 0; text-shadow: 2px 2px 0 #2a6e00; }
 #title-screen .meme-cat { font-size: 7em; animation: wiggle 0.8s infinite alternate; }
-#title-screen .start-text { font-size: 1.8em; color: #FFD700; margin-top: 20px; animation: blink 1s infinite; text-shadow: 2px 2px 0 #8B4513; }
+#title-screen .start-btn {
+    margin-top: 25px; padding: 18px 60px; font-size: 2em; font-family: 'Comic Sans MS', cursive;
+    font-weight: bold; color: #fff; background: linear-gradient(180deg, #ff4444 0%, #cc0000 100%);
+    border: 4px solid #fff; border-radius: 12px; cursor: pointer; text-transform: uppercase;
+    text-shadow: 3px 3px 0 #600, -1px -1px 0 #f88; letter-spacing: 3px;
+    box-shadow: 0 6px 0 #800, 0 8px 15px rgba(0,0,0,0.4);
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+#title-screen .start-btn:hover { transform: translateY(2px); box-shadow: 0 4px 0 #800, 0 6px 10px rgba(0,0,0,0.4); }
+#title-screen .start-btn:active { transform: translateY(5px); box-shadow: 0 1px 0 #800, 0 2px 5px rgba(0,0,0,0.4); }
 #title-screen .controls { font-size: 0.9em; color: #fff; margin-top: 15px; text-align: center; line-height: 1.8; text-shadow: 1px 1px 0 #2a6e00; }
 #game-over {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -43,8 +51,7 @@ canvas { display: block; }
 <div id="title-screen">
     <div class="meme-cat">🐱</div>
     <h1>SUPER<br>KATZENKLO<br>BROS</h1>
-    <div class="subtitle">~ das memigste Katzenspiel aller Zeiten ~</div>
-    <div class="start-text">LEERTASTE / KLICK zum Starten</div>
+    <button class="start-btn" id="start-btn">&#9654; START</button>
     <div class="controls">
         ⌨️ Pfeile/WASD = Laufen &amp; Springen | 🎮 Gamepad = D-Pad + Buttons<br>
         🐟 Fische sammeln | 🥒 Gurken ausweichen | 💩 Katzenklos = Plattformen<br>
@@ -557,6 +564,9 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 canvas.addEventListener('click', () => {
     if (state === 'title' || state === 'dead') { audioCtx.resume(); startGame(); }
+});
+document.getElementById('start-btn').addEventListener('click', () => {
+    audioCtx.resume(); startGame();
 });
 
 function startGame() {
