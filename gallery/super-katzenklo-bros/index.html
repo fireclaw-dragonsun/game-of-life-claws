@@ -52,11 +52,13 @@ canvas { display: block; }
     <div class="meme-cat">🐱</div>
     <h1>SUPER<br>KATZENKLO<br>BROS</h1>
     <button class="start-btn" id="start-btn">&#9654; START</button>
-    <div class="controls">
-        ⌨️ Pfeile/WASD = Laufen &amp; Springen | 🎮 Gamepad = D-Pad + Buttons<br>
-        🐟 Fische sammeln | 🥒 Gurken ausweichen | 💩 Katzenklos = Plattformen<br>
-        📦 Boxen = Katzen lieben Boxen | 🔴 Laserpointer = SPEED!
-    </div>
+    <div class="controls" id="controls-text"></div>
+    <script>
+    document.getElementById('controls-text').innerHTML =
+        (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024))
+        ? '👆 Tippen = Springen | Auto-Run! 🏃‍♂️<br>🐟 Fische sammeln | 🥒 Gurken ausweichen'
+        : '⌨️ Pfeile/WASD = Laufen &amp; Springen | 🎮 Gamepad<br>🐟 Fische sammeln | 🥒 Gurken ausweichen | 💩 Katzenklos = Plattformen';
+    </script>
 </div>
 
 <div id="game-over">
@@ -151,22 +153,33 @@ const musicTracks = [
     new Audio('skb-track-10.mp3'),
     new Audio('skb-track-11.mp3'),
 ];
-musicTracks.forEach(t => { t.loop = true; t.volume = 0.35; });
+musicTracks.forEach(t => { t.volume = 0.35; });
+let currentTrackIdx = 0;
 let currentTrack = null;
 
-function musicStart() {
-    if (currentTrack) { currentTrack.pause(); currentTrack.currentTime = 0; }
-    currentTrack = musicTracks[Math.floor(Math.random() * musicTracks.length)];
+function musicPlayTrack(idx) {
+    if (currentTrack) { currentTrack.pause(); currentTrack.currentTime = 0; currentTrack.onended = null; }
+    currentTrackIdx = idx % musicTracks.length;
+    currentTrack = musicTracks[currentTrackIdx];
+    currentTrack.onended = () => musicPlayTrack(currentTrackIdx + 1);
     currentTrack.play().catch(() => {});
 }
-function musicStop() { if (currentTrack) { currentTrack.pause(); currentTrack.currentTime = 0; } }
+function musicStart() { musicPlayTrack(0); }
+function musicStop() { if (currentTrack) { currentTrack.pause(); currentTrack.currentTime = 0; currentTrack.onended = null; } }
 function musicPause() { if (currentTrack) currentTrack.pause(); }
 function musicResume() { if (currentTrack) currentTrack.play().catch(() => {}); }
+
+// ============= MOBILE DETECTION =============
+const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || ('ontouchstart' in window && window.innerWidth < 1024);
+const AUTO_RUN_SPEED = 4.5;
 
 // ============= GAME STATE =============
 let state = 'title';
 let cat = {}, camera = {};
-let score = 0, lives = 9, combo = 0, comboTimer = 0, frame = 0, highScore = 0;
+let score = 0, lives = 9, combo = 0, comboTimer = 0, frame = 0;
+let highScore = 0, highScoreMobile = 0;
+try { highScore = parseInt(localStorage.getItem('skb_hi')) || 0; highScoreMobile = parseInt(localStorage.getItem('skb_hi_mobile')) || 0; } catch(e) {}
 let platforms = [], fishes = [], cucumbers = [], boxes = [], lasers = [], particles = [], memeTexts = [], signs = [];
 let nyanTrail = []; // rainbow trail for combos
 let speedBoost = 0;
@@ -594,6 +607,14 @@ function pollGamepad() {
     }
 }
 
+// ============= MOBILE TOUCH INPUT =============
+if (isMobile) {
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (state === 'playing') { keys['_mobileJump'] = true; }
+    }, { passive: false });
+}
+
 // ============= UPDATE =============
 function update() {
     if (state !== 'playing') return;
@@ -603,16 +624,27 @@ function update() {
 
     // Movement
     let moveDir = 0;
-    if (keys['ArrowLeft'] || keys['KeyA'] || keys['_gpLeft']) moveDir = -1;
-    if (keys['ArrowRight'] || keys['KeyD'] || keys['_gpRight']) moveDir = 1;
+    if (isMobile) {
+        // Auto-run mode: always move right
+        moveDir = 1;
+    } else {
+        if (keys['ArrowLeft'] || keys['KeyA'] || keys['_gpLeft']) moveDir = -1;
+        if (keys['ArrowRight'] || keys['KeyD'] || keys['_gpRight']) moveDir = 1;
+    }
 
-    const curSpeed = speedBoost > 0 ? MAX_SPEED * 1.8 : MAX_SPEED;
-    if (moveDir !== 0) { cat.vx += moveDir * MOVE_SPEED * 0.3; cat.dir = moveDir; }
-    else cat.vx *= 0.85;
+    const curSpeed = speedBoost > 0 ? MAX_SPEED * 1.8 : (isMobile ? AUTO_RUN_SPEED : MAX_SPEED);
+    if (isMobile) {
+        cat.vx = curSpeed; cat.dir = 1;
+    } else if (moveDir !== 0) {
+        cat.vx += moveDir * MOVE_SPEED * 0.3; cat.dir = moveDir;
+    } else {
+        cat.vx *= 0.85;
+    }
     cat.vx = Math.max(-curSpeed, Math.min(curSpeed, cat.vx));
 
     // Jump
-    if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || keys['_gpJump']) && cat.grounded) {
+    const wantJump = isMobile ? keys['_mobileJump'] : (keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || keys['_gpJump']);
+    if (wantJump && cat.grounded) {
         cat.vy = JUMP_FORCE;
         cat.grounded = false;
         sfxJump();
@@ -620,6 +652,7 @@ function update() {
         if (Math.random() > 0.65) showMeme(MEMES_JUMP[Math.floor(Math.random()*MEMES_JUMP.length)], cat.x, cat.y - 40);
     }
     keys['_gpJump'] = false;
+    keys['_mobileJump'] = false;
 
     // Gravity
     cat.vy += GRAVITY;
@@ -742,10 +775,15 @@ function update() {
 function die() {
     state = 'dead';
     musicPause();
-    if (score > highScore) highScore = score;
+    if (isMobile) {
+        if (score > highScoreMobile) { highScoreMobile = score; try { localStorage.setItem('skb_hi_mobile', highScoreMobile); } catch(e){} }
+        document.getElementById('final-score').textContent = '🐟 ' + score + ' | Best (Mobile): ' + highScoreMobile;
+    } else {
+        if (score > highScore) { highScore = score; try { localStorage.setItem('skb_hi', highScore); } catch(e){} }
+        document.getElementById('final-score').textContent = '🐟 ' + score + ' | Best: ' + highScore;
+    }
     document.getElementById('game-over').style.display = 'flex';
     document.getElementById('death-meme').textContent = MEMES_DEATH[Math.floor(Math.random()*MEMES_DEATH.length)];
-    document.getElementById('final-score').textContent = '🐟 ' + score + ' Fische | Best: ' + highScore;
     document.getElementById('hud').style.display = 'none';
 }
 
