@@ -71,19 +71,17 @@ canvas { display: block; }
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const ZOOM = 2.5;
+const GROUND_Y_RATIO = 0.88;
+const GRAVITY = 0.55;
+const JUMP_FORCE = -13;
+const MOVE_SPEED = 5;
+const MAX_SPEED = 7;
+const TILE = 32;
 let groundY = 0;
 function vw() { return canvas.width / ZOOM; }
 function vh() { return canvas.height / ZOOM; }
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; groundY = vh() * GROUND_Y_RATIO; }
 resize(); window.addEventListener('resize', resize);
-
-// ============= CONSTANTS =============
-const GRAVITY = 0.55;
-const JUMP_FORCE = -13;
-const MOVE_SPEED = 5;
-const MAX_SPEED = 7;
-const GROUND_Y_RATIO = 0.88; // ground at 88% — thin earth strip at bottom
-const TILE = 32;
 
 // ============= MEME DATA =============
 const MEMES_JUMP = ["much jump!", "BOING!", "nyoom!", "hops!", "WHEEE!", "purrfect jump!", "such spring!"];
