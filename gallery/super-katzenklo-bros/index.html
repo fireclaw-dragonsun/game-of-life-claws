@@ -20,12 +20,14 @@ canvas { display: block; }
 }
 #title-screen .meme-cat { font-size: 7em; animation: wiggle 0.8s infinite alternate; }
 #title-screen .start-btn {
-    margin-top: 25px; padding: 18px 60px; font-size: 2em; font-family: 'Comic Sans MS', cursive;
+    margin-top: 25px; padding: 18px 60px; font-size: 2em;
+    font-family: 'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', sans-serif;
     font-weight: bold; color: #fff; background: linear-gradient(180deg, #ff4444 0%, #cc0000 100%);
     border: 4px solid #fff; border-radius: 12px; cursor: pointer; text-transform: uppercase;
     text-shadow: 3px 3px 0 #600, -1px -1px 0 #f88; letter-spacing: 3px;
     box-shadow: 0 6px 0 #800, 0 8px 15px rgba(0,0,0,0.4);
     transition: transform 0.1s, box-shadow 0.1s;
+    -webkit-appearance: none; appearance: none;
 }
 #title-screen .start-btn:hover { transform: translateY(2px); box-shadow: 0 4px 0 #800, 0 6px 10px rgba(0,0,0,0.4); }
 #title-screen .start-btn:active { transform: translateY(5px); box-shadow: 0 1px 0 #800, 0 2px 5px rgba(0,0,0,0.4); }
@@ -44,6 +46,19 @@ canvas { display: block; }
 @keyframes bounce { to { transform: translateY(-10px); } }
 @keyframes blink { 50% { opacity: 0.3; } }
 @keyframes wiggle { 0% { transform: rotate(-5deg); } 100% { transform: rotate(5deg); } }
+/* Mobile virtual buttons */
+#mobile-controls { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 25; pointer-events: none; padding: 12px 16px; }
+#mobile-controls .btn-group { display: flex; pointer-events: auto; }
+#mobile-controls .ctrl-btn {
+    width: 70px; height: 70px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6);
+    background: rgba(0,0,0,0.35); color: #fff; font-size: 28px; display: flex; align-items: center;
+    justify-content: center; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#mobile-controls .ctrl-btn:active { background: rgba(255,255,255,0.4); }
+#mobile-controls .dpad { gap: 10px; }
+#mobile-controls .jump-wrap { margin-left: auto; }
+#mobile-controls .jump-btn { width: 90px; height: 90px; font-size: 20px; font-weight: bold;
+    background: rgba(255,50,50,0.45); border-color: rgba(255,100,100,0.7); }
 </style>
 </head>
 <body>
@@ -56,16 +71,19 @@ canvas { display: block; }
     <script>
     document.getElementById('controls-text').innerHTML =
         (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024))
-        ? '👆 Tippen = Springen | Auto-Run! 🏃‍♂️<br>🐟 Fische sammeln | 🥒 Gurken ausweichen'
+        ? '◀ ▶ = Laufen | JUMP = Springen<br>🐟 Fische sammeln | 🥒 Gurken ausweichen'
         : '⌨️ Pfeile/WASD = Laufen &amp; Springen | 🎮 Gamepad<br>🐟 Fische sammeln | 🥒 Gurken ausweichen | 💩 Katzenklos = Plattformen';
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024)) {
+        document.getElementById('restart-text').textContent = 'TIPPEN zum Nochmal';
+    }
     </script>
 </div>
 
-<div id="game-over">
+<div id="game-over" onclick="if(state==='dead'){audioCtx.resume();startGame();}">
     <h2>GAME OVER</h2>
     <div class="meme-text" id="death-meme"></div>
     <div class="score-text" id="final-score"></div>
-    <div class="restart">LEERTASTE zum Nochmal</div>
+    <div class="restart" id="restart-text">LEERTASTE zum Nochmal</div>
 </div>
 
 <div id="hud" style="display:none">
@@ -74,6 +92,17 @@ canvas { display: block; }
     <div class="stat" id="combo-display"></div>
 </div>
 
+<div id="mobile-controls">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;">
+        <div class="btn-group dpad">
+            <div class="ctrl-btn" id="btn-left">◀</div>
+            <div class="ctrl-btn" id="btn-right">▶</div>
+        </div>
+        <div class="btn-group jump-wrap">
+            <div class="ctrl-btn jump-btn" id="btn-jump">JUMP</div>
+        </div>
+    </div>
+</div>
 <canvas id="game"></canvas>
 
 <script>
@@ -172,7 +201,6 @@ function musicResume() { if (currentTrack) currentTrack.play().catch(() => {}); 
 // ============= MOBILE DETECTION =============
 const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
     || ('ontouchstart' in window && window.innerWidth < 1024);
-const AUTO_RUN_SPEED = 4.5;
 
 // ============= GAME STATE =============
 let state = 'title';
@@ -587,6 +615,7 @@ function startGame() {
     document.getElementById('title-screen').style.display = 'none';
     document.getElementById('game-over').style.display = 'none';
     document.getElementById('hud').style.display = 'flex';
+    if (isMobile) document.getElementById('mobile-controls').style.display = 'block';
     musicStart();
 }
 
@@ -607,11 +636,24 @@ function pollGamepad() {
     }
 }
 
-// ============= MOBILE TOUCH INPUT =============
+// ============= MOBILE VIRTUAL BUTTONS =============
 if (isMobile) {
+    document.getElementById('mobile-controls').style.display = 'block';
+    function mobBtn(id, key) {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true; }, { passive: false });
+        el.addEventListener('touchend', e => { e.preventDefault(); keys[key] = false; }, { passive: false });
+        el.addEventListener('touchcancel', e => { keys[key] = false; });
+    }
+    mobBtn('btn-left', '_mobLeft');
+    mobBtn('btn-right', '_mobRight');
+    // Jump button: set flag on press (consumed each frame)
+    const jumpEl = document.getElementById('btn-jump');
+    jumpEl.addEventListener('touchstart', e => { e.preventDefault(); keys['_mobJump'] = true; }, { passive: false });
+    jumpEl.addEventListener('touchend', e => { e.preventDefault(); }, { passive: false });
+    // Tap anywhere on canvas to restart when dead
     canvas.addEventListener('touchstart', e => {
-        e.preventDefault();
-        if (state === 'playing') { keys['_mobileJump'] = true; }
+        if (state === 'dead') { e.preventDefault(); audioCtx.resume(); startGame(); }
     }, { passive: false });
 }
 
@@ -622,28 +664,18 @@ function update() {
     groundY = getGroundY();
     pollGamepad();
 
-    // Movement
+    // Movement (same mechanics on desktop and mobile)
     let moveDir = 0;
-    if (isMobile) {
-        // Auto-run mode: always move right
-        moveDir = 1;
-    } else {
-        if (keys['ArrowLeft'] || keys['KeyA'] || keys['_gpLeft']) moveDir = -1;
-        if (keys['ArrowRight'] || keys['KeyD'] || keys['_gpRight']) moveDir = 1;
-    }
+    if (keys['ArrowLeft'] || keys['KeyA'] || keys['_gpLeft'] || keys['_mobLeft']) moveDir = -1;
+    if (keys['ArrowRight'] || keys['KeyD'] || keys['_gpRight'] || keys['_mobRight']) moveDir = 1;
 
-    const curSpeed = speedBoost > 0 ? MAX_SPEED * 1.8 : (isMobile ? AUTO_RUN_SPEED : MAX_SPEED);
-    if (isMobile) {
-        cat.vx = curSpeed; cat.dir = 1;
-    } else if (moveDir !== 0) {
-        cat.vx += moveDir * MOVE_SPEED * 0.3; cat.dir = moveDir;
-    } else {
-        cat.vx *= 0.85;
-    }
+    const curSpeed = speedBoost > 0 ? MAX_SPEED * 1.8 : MAX_SPEED;
+    if (moveDir !== 0) { cat.vx += moveDir * MOVE_SPEED * 0.3; cat.dir = moveDir; }
+    else cat.vx *= 0.85;
     cat.vx = Math.max(-curSpeed, Math.min(curSpeed, cat.vx));
 
     // Jump
-    const wantJump = isMobile ? keys['_mobileJump'] : (keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || keys['_gpJump']);
+    const wantJump = keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || keys['_gpJump'] || keys['_mobJump'];
     if (wantJump && cat.grounded) {
         cat.vy = JUMP_FORCE;
         cat.grounded = false;
@@ -652,7 +684,7 @@ function update() {
         if (Math.random() > 0.65) showMeme(MEMES_JUMP[Math.floor(Math.random()*MEMES_JUMP.length)], cat.x, cat.y - 40);
     }
     keys['_gpJump'] = false;
-    keys['_mobileJump'] = false;
+    keys['_mobJump'] = false;
 
     // Gravity
     cat.vy += GRAVITY;
@@ -785,6 +817,7 @@ function die() {
     document.getElementById('game-over').style.display = 'flex';
     document.getElementById('death-meme').textContent = MEMES_DEATH[Math.floor(Math.random()*MEMES_DEATH.length)];
     document.getElementById('hud').style.display = 'none';
+    if (isMobile) document.getElementById('mobile-controls').style.display = 'none';
 }
 
 // ============= RENDER =============
