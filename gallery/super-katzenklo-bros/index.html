@@ -221,7 +221,13 @@ function sfxLevelComplete() { [500,600,700,800,1000,1200,1400,1600].forEach((f,i
 function sfxGravestone() { playSound(120, 0.8, 'sine', 0.15); setTimeout(() => playSound(80, 1.0, 'sine', 0.12), 300); }
 
 // ============= MUSIC =============
-const musicTracks = [ new Audio('skb-track-10.mp3'), new Audio('skb-track-11.mp3') ];
+const musicTracks = [
+    new Audio('skb-track-10.mp3'),
+    new Audio('skb-track-11.mp3'),
+    new Audio('Super Katzenklo Bros 16.mp3'),
+    new Audio('Super Katzenklo Bros 18.mp3'),
+    new Audio('Super Katzenklo Bros 20.mp3'),
+];
 musicTracks.forEach(t => { t.volume = 0.35; });
 let currentTrackIdx = 0, currentTrack = null;
 function musicPlayTrack(idx) {
@@ -231,7 +237,12 @@ function musicPlayTrack(idx) {
     currentTrack.onended = () => musicPlayTrack(currentTrackIdx + 1);
     currentTrack.play().catch(() => {});
 }
-function musicStart() { musicTracks.forEach(t => { t.volume = 0.35; }); musicPlayTrack(0); }
+function musicStart() {
+    musicTracks.forEach(t => { t.volume = 0.35; });
+    // Random start track, then sequential loop from there
+    const startIdx = Math.floor(Math.random() * musicTracks.length);
+    musicPlayTrack(startIdx);
+}
 function musicStop() { if (currentTrack) { currentTrack.pause(); currentTrack.currentTime = 0; currentTrack.onended = null; } }
 function musicPause() { if (currentTrack) currentTrack.pause(); }
 function musicResume() { if (currentTrack) currentTrack.play().catch(() => {}); }
