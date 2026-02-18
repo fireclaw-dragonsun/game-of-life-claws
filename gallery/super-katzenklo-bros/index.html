@@ -816,7 +816,7 @@ canvas.addEventListener('click', () => {
 document.getElementById('start-btn').addEventListener('click', () => { audioCtx.resume(); startGame(); });
 
 // Gamepad
-let gpJumpPrev = false, gpStartPrev = false;
+let gpJumpPrev = false, gpStartPrev = false, gpShootPrev = false;
 function pollGamepad() {
     const gps = navigator.getGamepads(); if (!gps) return;
     for (const gp of gps) {
@@ -829,10 +829,12 @@ function pollGamepad() {
         if (gp.axes[1] < -0.5) jump = true;
         if (jump && !gpJumpPrev) keys['_gpJump'] = true;
         gpJumpPrev = jump;
-        // Shoot: X(2), Y(3)
+        // Shoot: X(2), Y(3) — edge detection + hold
         let shoot = false;
         for (const bi of [2,3]) { if (gp.buttons[bi] && gp.buttons[bi].pressed) shoot = true; }
+        if (shoot && !gpShootPrev) keys['_gpShootEdge'] = true;
         keys['_gpShoot'] = shoot;
+        gpShootPrev = shoot;
         // Start button (9)
         const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
         if (startPressed && !gpStartPrev) {
@@ -1228,12 +1230,13 @@ function update() {
         }
     }
 
-    // Shooting
-    const wantShoot = keys['KeyX'] || keys['ShiftLeft'] || keys['ShiftRight'] || keys['_gpShoot'] || keys['_mobShoot'];
+    // Shooting (edge-triggered tap OR held button, both work)
+    const wantShoot = keys['KeyX'] || keys['ShiftLeft'] || keys['ShiftRight'] || keys['_gpShoot'] || keys['_gpShootEdge'] || keys['_mobShoot'];
+    keys['_gpShootEdge'] = false;
     if (wantShoot && cat.powerState === 'shooting' && cat.shootCooldown <= 0) {
         const active = projectiles.filter(p => p.alive).length;
         if (active < 2) {
-            cat.shootCooldown = 15;
+            cat.shootCooldown = 10;
             projectiles.push({
                 x: cat.x + cat.dir * cat.size * 0.5,
                 y: cat.y - cat.size * 0.1,
