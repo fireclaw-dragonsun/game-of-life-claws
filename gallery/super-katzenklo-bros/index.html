@@ -271,6 +271,7 @@ let particles = [], memeTexts = [], nyanTrail = [], speedBoost = 0;
 let qBlocks = [], healthPickups = [], oneUps = [];
 let projectiles = [], powerupItems = [];
 let goalFlag = null;
+let celebrateTimer = 0;
 function getGroundY() { return vh() * GROUND_Y_RATIO; }
 
 // Show highscore on title
@@ -899,8 +900,6 @@ function showTransition() {
 }
 
 function completeLevel() {
-    musicPause();
-    sfxLevelComplete();
     currentLevelIdx++;
 
     // Save highscore
@@ -1037,6 +1036,37 @@ function update() {
         frame++;
         deadTimer--;
         if (deadTimer <= 0) returnToTitle();
+        return;
+    }
+
+    // Celebration fireworks at flag
+    if (state === 'celebrating') {
+        frame++;
+        celebrateTimer--;
+        // Continuous firework bursts
+        if (celebrateTimer % 12 === 0) {
+            const fx = goalFlag.x + (Math.random() - 0.5) * 200;
+            const fy = goalFlag.y - 60 - Math.random() * 120;
+            const colors = ['#FF0000','#FFD700','#00FF00','#FF69B4','#00BFFF','#FF8800','#AA00FF'];
+            const col = colors[Math.floor(Math.random() * colors.length)];
+            spawnParticles(fx, fy, col, 15, 5);
+            if (celebrateTimer % 24 === 0) {
+                playSound(800 + Math.random() * 800, 0.15, 'sine', 0.08);
+            }
+        }
+        // Update particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life -= p.decay;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+        // Meme texts float
+        for (let i = memeTexts.length - 1; i >= 0; i--) {
+            memeTexts[i].y += memeTexts[i].vy; memeTexts[i].life -= 0.012;
+            if (memeTexts[i].life <= 0) memeTexts.splice(i, 1);
+        }
+        if (celebrateTimer <= 0) {
+            completeLevel();
+        }
         return;
     }
 
@@ -1316,9 +1346,22 @@ function update() {
         }
     }
 
-    // Goal flag
-    if (goalFlag && Math.abs(cat.x - goalFlag.x) < 40 && Math.abs(cat.y - goalFlag.y) < 130) {
-        completeLevel();
+    // Goal flag — level ends when cat reaches or passes the flag
+    if (goalFlag && cat.x >= goalFlag.x - 30) {
+        state = 'celebrating';
+        celebrateTimer = 150;
+        musicPause();
+        sfxLevelComplete();
+        cat.vx = 0; cat.vy = 0;
+        // Initial firework burst
+        const fwColors = ['#FF0000','#FFD700','#00FF00','#FF69B4','#00BFFF','#FF8800'];
+        for (let b = 0; b < 5; b++) {
+            const fx = goalFlag.x + (Math.random() - 0.5) * 150;
+            const fy = goalFlag.y - 40 - Math.random() * 100;
+            spawnParticles(fx, fy, fwColors[b % fwColors.length], 12, 5);
+        }
+        showMeme("LEVEL GESCHAFFT! 🎉🐱🎆", goalFlag.x, goalFlag.y - 100, '#FFD700');
+        showMeme("PARTY! 🥳", goalFlag.x - 60, goalFlag.y - 140, '#FF69B4');
         return;
     }
 
@@ -1442,8 +1485,8 @@ function render() {
     }
     ctx.globalAlpha = 1;
 
-    // Cat (only during playing or dying)
-    if (state === 'playing') {
+    // Cat (during playing and celebrating)
+    if (state === 'playing' || state === 'celebrating') {
         drawCat(cat, cat.grounded ? frame : 0);
     }
 
