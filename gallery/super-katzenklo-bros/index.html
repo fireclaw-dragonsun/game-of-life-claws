@@ -355,6 +355,46 @@ function generateWorld() {
             signs.push({ x: px + Math.random() * 200, y: groundY - 120 - Math.random() * 100, ...sign });
         }
 
+        // === SKY TOWER — vertical secret route every ~20 platforms ===
+        if (i > 5 && i % 20 === 10) {
+            const towerBaseX = px + pw * 0.5;
+            const towerBaseY = py; // starts from the current platform
+            const towerSteps = 6 + Math.floor(Math.random() * 3); // 6-8 steps up
+            const stepH = 110 + Math.random() * 20; // vertical spacing per step (~120px, within jump range)
+            let tx = towerBaseX;
+            for (let s = 1; s <= towerSteps; s++) {
+                // Zigzag left-right as we go up
+                tx += (s % 2 === 0 ? 1 : -1) * (40 + Math.random() * 50);
+                const ty = towerBaseY - s * stepH;
+                const tw = 55 + Math.random() * 40;
+                platforms.push({ x: tx - tw/2, y: ty, w: tw, h: 22 });
+
+                // Fish on every sky platform
+                fishes.push({ x: tx, y: ty - 25, alive: true });
+                if (Math.random() > 0.5) fishes.push({ x: tx + 15, y: ty - 40, alive: true });
+
+                // ? Block halfway up the tower
+                if (s === Math.floor(towerSteps / 2)) {
+                    qBlocks.push({ x: tx - 14, y: ty - 100, w: 28, h: 28, used: false, bumpTimer: 0 });
+                }
+                // 1-UP at the very top
+                if (s === towerSteps) {
+                    oneUps.push({ x: tx, y: ty - 25, alive: true });
+                    // Meme sign at the peak
+                    signs.push({ x: tx, y: ty - 60, text: "SKY CAT\nREACHED!", emoji: "🏔️", bg: "#87CEEB" });
+                }
+                // Cucumber guard on some sky platforms (later levels)
+                if (s > 2 && s < towerSteps && Math.random() < lvl.cucChance * 0.5) {
+                    cucumbers.push({
+                        x: tx, y: ty - 18,
+                        vx: (Math.random() > 0.5 ? 1 : -1) * 0.6,
+                        left: tx - tw/2, right: tx + tw/2,
+                        alive: true, onPlatform: true,
+                    });
+                }
+            }
+        }
+
         px += spacing;
     }
 
