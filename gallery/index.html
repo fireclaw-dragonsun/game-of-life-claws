@@ -330,6 +330,19 @@
     </div>
   </a>
 
+  <a class="game-card" href="cypher-beam/">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="cypher-beam" data-color="#00f0ff" data-bg="10,10,15"></canvas>
+      <div class="play-overlay"><div class="play-btn">Launch</div></div>
+    </div>
+    <div class="game-info">
+      <h2 style="color: #00f0ff">CypherBeam</h2>
+      <div class="mashup" style="color: #ff00aa">Speech &times; Translation &times; Emoji</div>
+      <div class="description">Echtzeit-Rap-Visualisierung: Sprich ins Mic, sieh den Text, die Übersetzung in 3 Sprachen und einen Emoji-Strudel deiner Worte.</div>
+      <span class="controls-tag">Microphone &middot; Chrome/Edge</span>
+    </div>
+  </a>
+
   <!-- ARCADE_ENTRIES_END -->
 </div>
 
@@ -526,6 +539,49 @@ document.querySelectorAll('.demo-canvas').forEach(canvas => {
       ctx.textAlign = 'center';
       ctx.fillText('much jump!', w / 2, 20);
       ctx.fillText('wow', w * 0.8, 35);
+      ctx.globalAlpha = 1;
+    },
+
+    'cypher-beam': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      // Mic icon
+      ctx.fillStyle = '#ff00aa';
+      var micPulse = 0.6 + 0.4 * Math.sin(frame / 15);
+      ctx.globalAlpha = micPulse;
+      ctx.beginPath();
+      ctx.arc(w * 0.12, h * 0.3, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Text lines appearing
+      ctx.fillStyle = color;
+      ctx.font = '10px monospace';
+      var textY = h * 0.25;
+      var chars = Math.floor(frame / 3) % 30;
+      var txt = 'Ich rock das Mic am Start...';
+      ctx.globalAlpha = 0.8;
+      ctx.fillText(txt.substring(0, chars), w * 0.22, textY);
+
+      // Translation lines
+      ctx.globalAlpha = 0.4;
+      ctx.font = '8px monospace';
+      if (frame > 30) ctx.fillText('I rock the mic...', w * 0.22, textY + 20);
+      if (frame > 40) { ctx.fillStyle = '#ff6644'; ctx.fillText('Je rock le micro...', w * 0.22, textY + 35); }
+      if (frame > 50) { ctx.fillStyle = '#00ff88'; ctx.fillText('Yo rockeo el mic...', w * 0.22, textY + 50); }
+      ctx.globalAlpha = 1;
+
+      // Floating emojis
+      var emojis = ['\ud83c\udfa4', '\ud83d\udd25', '\ud83d\udcaa', '\ud83d\udc51', '\ud83c\udfc6'];
+      for (var i = 0; i < emojis.length; i++) {
+        var ex = w * 0.2 + i * (w * 0.15);
+        var ey = h * 0.75 + Math.sin((frame + i * 20) / 12) * 10;
+        var ealpha = 0.3 + 0.4 * Math.sin((frame + i * 15) / 10);
+        ctx.globalAlpha = ealpha;
+        ctx.font = '20px serif';
+        ctx.fillText(emojis[i], ex, ey);
+      }
       ctx.globalAlpha = 1;
     },
 

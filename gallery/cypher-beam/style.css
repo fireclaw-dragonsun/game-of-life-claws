@@ -1,0 +1,489 @@
+/* CypherBeam — Echtzeit-Rap-Visualisierung
+   Dark cypher aesthetic, neon accents, beamer-ready */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-card: #1a1a2e;
+  --neon-cyan: #00f0ff;
+  --neon-magenta: #ff00aa;
+  --neon-yellow: #ffe600;
+  --neon-green: #00ff88;
+  --text-primary: #f0f0f5;
+  --text-secondary: #8888aa;
+  --text-interim: #555577;
+  --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.3);
+  --glow-magenta: 0 0 20px rgba(255, 0, 170, 0.3);
+  --radius: 12px;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+/* ═══════════════════════════════════════
+   LAYOUT — Three zones stacked
+   ═══════════════════════════════════════ */
+
+#app {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  height: 100vh;
+  width: 100vw;
+  gap: 0;
+  padding: 16px;
+}
+
+/* ═══════════════════════════════════════
+   HEADER — Controls
+   ═══════════════════════════════════════ */
+
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+}
+
+#header h1 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#lang-select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+}
+
+#lang-select:focus {
+  border-color: var(--neon-cyan);
+}
+
+#mic-btn {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--neon-magenta);
+  background: transparent;
+  color: var(--neon-magenta);
+  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#mic-btn:hover {
+  background: rgba(255, 0, 170, 0.1);
+  box-shadow: var(--glow-magenta);
+}
+
+#mic-btn.active {
+  background: var(--neon-magenta);
+  color: #fff;
+  box-shadow: var(--glow-magenta), 0 0 40px rgba(255, 0, 170, 0.4);
+  animation: pulse-mic 1.5s ease infinite;
+}
+
+@keyframes pulse-mic {
+  0%, 100% { box-shadow: var(--glow-magenta); }
+  50% { box-shadow: 0 0 30px rgba(255, 0, 170, 0.6), 0 0 60px rgba(255, 0, 170, 0.3); }
+}
+
+#status-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 120px;
+  text-align: right;
+}
+
+#status-text.live {
+  color: var(--neon-green);
+}
+
+/* ═══════════════════════════════════════
+   ZONE 1 — Original Text
+   ═══════════════════════════════════════ */
+
+#original-zone {
+  background: var(--bg-secondary);
+  border: 1px solid #222;
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  overflow-y: auto;
+  min-height: 0;
+  position: relative;
+}
+
+#original-zone::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+#original-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--neon-cyan);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#original-text {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  min-height: 50px;
+}
+
+#original-text .interim {
+  color: var(--text-interim);
+  font-style: italic;
+}
+
+#original-text .final {
+  color: var(--text-primary);
+}
+
+/* Placeholder when empty */
+#original-text:empty::after {
+  content: 'Drück den Mic-Button und rap los...';
+  color: var(--text-secondary);
+  font-size: 24px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════
+   ZONE 2 — Translations
+   ═══════════════════════════════════════ */
+
+#translation-zone {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.translation-card {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  min-height: 60px;
+  overflow-y: auto;
+  max-height: 120px;
+}
+
+.translation-card .lang-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.translation-card .translation-text {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.translation-card .translation-text:empty::after {
+  content: '...';
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Highlight colors per language */
+.translation-card[data-lang="en"] { border-top: 2px solid #4488ff; }
+.translation-card[data-lang="de"] { border-top: 2px solid var(--neon-yellow); }
+.translation-card[data-lang="fr"] { border-top: 2px solid #ff6644; }
+.translation-card[data-lang="es"] { border-top: 2px solid var(--neon-green); }
+
+/* ═══════════════════════════════════════
+   ZONE 3 — Emoji Visualization
+   ═══════════════════════════════════════ */
+
+#emoji-zone {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid #222;
+  border-radius: var(--radius);
+  min-height: 140px;
+  max-height: 200px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 16px;
+  transition: background 0.5s ease;
+}
+
+#emoji-zone::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--neon-magenta), var(--neon-yellow), var(--neon-cyan));
+}
+
+/* Mood backgrounds */
+#emoji-zone.mood-positive {
+  background: radial-gradient(ellipse at center, rgba(255, 170, 0, 0.08), var(--bg-secondary));
+}
+
+#emoji-zone.mood-negative {
+  background: radial-gradient(ellipse at center, rgba(100, 0, 200, 0.08), var(--bg-secondary));
+}
+
+/* Emoji particles */
+.emoji-particle {
+  display: inline-block;
+  font-size: 48px;
+  animation: emoji-pop 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.emoji-particle.text-particle {
+  font-size: 18px;
+  color: var(--text-secondary);
+  opacity: 0;
+  animation: text-fade 0.4s ease forwards;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+@keyframes emoji-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-20deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.3) rotate(5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes text-fade {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 0.4; transform: translateY(0); }
+}
+
+@keyframes emoji-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes emoji-fade-out {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.5); }
+}
+
+.emoji-particle.floating {
+  animation: emoji-float 3s ease-in-out infinite;
+}
+
+.emoji-particle.fading {
+  animation: emoji-fade-out 1s ease forwards;
+}
+
+/* Empty state */
+#emoji-zone:empty::after {
+  content: '🎤 ✨ 🔥';
+  font-size: 48px;
+  opacity: 0.15;
+  animation: emoji-float 4s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ═══════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  #translation-zone {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .translation-card {
+    max-height: 80px;
+    padding: 8px 12px;
+  }
+
+  .translation-card .translation-text {
+    font-size: 18px;
+  }
+
+  #original-text {
+    font-size: 28px;
+  }
+
+  .emoji-particle {
+    font-size: 36px;
+  }
+
+  #emoji-zone {
+    min-height: 100px;
+    max-height: 150px;
+  }
+}
+
+@media (max-width: 600px) {
+  #app {
+    padding: 8px;
+  }
+
+  #header h1 {
+    font-size: 14px;
+  }
+
+  #mic-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+
+  #original-text {
+    font-size: 22px;
+  }
+
+  .translation-card .translation-text {
+    font-size: 16px;
+  }
+
+  .emoji-particle {
+    font-size: 32px;
+  }
+}
+
+/* ═══════════════════════════════════════
+   BACKGROUND AMBIENT GLOW
+   ═══════════════════════════════════════ */
+
+#app::before {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle at 30% 20%,
+    rgba(0, 240, 255, 0.03) 0%,
+    transparent 50%
+  ),
+  radial-gradient(
+    circle at 70% 80%,
+    rgba(255, 0, 170, 0.03) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ═══════════════════════════════════════
+   NOTIFICATION / TOAST
+   ═══════════════════════════════════════ */
+
+#toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--bg-card);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 100;
+}
+
+#toast.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}

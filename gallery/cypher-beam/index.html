@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CypherBeam — Echtzeit-Rap-Visualisierung</title>
+  <meta name="description" content="Echtzeit-Transkription, Simultanübersetzung und Emoji-Visualisierung für Rap-Cyphers und internationale Meetings.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- HEADER — Controls -->
+  <div id="header">
+    <h1>CypherBeam</h1>
+    <div class="controls">
+      <span id="status-text">Laden...</span>
+      <select id="lang-select" title="Quellsprache">
+        <option value="de">🇩🇪 Deutsch</option>
+        <option value="en">🇬🇧 English</option>
+        <option value="fr">🇫🇷 Français</option>
+        <option value="es">🇪🇸 Español</option>
+      </select>
+      <button id="mic-btn" title="Mikrofon starten / stoppen (Leertaste)">🎤</button>
+    </div>
+  </div>
+
+  <!-- ZONE 1 — Original Text -->
+  <div id="original-zone">
+    <div id="original-label">🎤 Original</div>
+    <div id="original-text"></div>
+  </div>
+
+  <!-- ZONE 2 — Translations -->
+  <div id="translation-zone">
+    <!-- Cards generated dynamically by app.js -->
+  </div>
+
+  <!-- ZONE 3 — Emoji Visualization -->
+  <div id="emoji-zone"></div>
+
+</div>
+
+<!-- Toast notification -->
+<div id="toast"></div>
+
+<!-- Scripts -->
+<script src="emoji-dict.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
