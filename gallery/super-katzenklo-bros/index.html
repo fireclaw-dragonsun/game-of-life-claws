@@ -71,6 +71,8 @@ canvas { display: block; }
     background: rgba(255,50,50,0.45); border-color: rgba(255,100,100,0.7); }
 #mobile-controls .shoot-btn { width: 70px; height: 70px; font-size: 24px;
     background: rgba(50,200,50,0.45); border-color: rgba(100,255,100,0.7); }
+#mobile-controls .bomb-btn { width: 70px; height: 70px; font-size: 24px;
+    background: rgba(200,100,0,0.45); border-color: rgba(255,150,50,0.7); }
 </style>
 </head>
 <body>
@@ -102,6 +104,7 @@ canvas { display: block; }
         <div class="stat" id="score-display">🐟 0</div>
         <div class="stat" id="hp-display">♥♥♥</div>
         <div class="stat" id="lives-display">🐱 x3</div>
+        <div class="stat" id="bomb-display">💣 x3</div>
         <div class="stat" id="combo-display"></div>
     </div>
 </div>
@@ -113,6 +116,7 @@ canvas { display: block; }
             <div class="ctrl-btn" id="btn-right">▶</div>
         </div>
         <div class="btn-group action-wrap">
+            <div class="ctrl-btn bomb-btn" id="btn-bomb">💣</div>
             <div class="ctrl-btn shoot-btn" id="btn-shoot">🦠</div>
             <div class="ctrl-btn jump-btn" id="btn-jump">JUMP</div>
         </div>
@@ -219,6 +223,17 @@ function sfxShoot() { playSound(300, 0.1, 'sawtooth', 0.1); setTimeout(() => pla
 function sfxOneUp() { [800,1000,1200,1400,1600,1800].forEach((f,i) => setTimeout(() => playSound(f, 0.1, 'sine', 0.1), i*70)); }
 function sfxLevelComplete() { [500,600,700,800,1000,1200,1400,1600].forEach((f,i) => setTimeout(() => playSound(f, 0.15, 'sine', 0.12), i*80)); }
 function sfxGravestone() { playSound(120, 0.8, 'sine', 0.15); setTimeout(() => playSound(80, 1.0, 'sine', 0.12), 300); }
+function sfxBombThrow() { playSound(200, 0.15, 'square', 0.1); setTimeout(() => playSound(150, 0.1, 'square', 0.08), 60); }
+function sfxBombExplode() {
+    playSound(60, 0.8, 'sawtooth', 0.25); playSound(80, 0.6, 'square', 0.2);
+    setTimeout(() => playSound(40, 1.0, 'sawtooth', 0.2), 100);
+    setTimeout(() => playSound(100, 0.5, 'square', 0.15), 200);
+}
+function sfxDogBark() { playSound(150, 0.2, 'sawtooth', 0.18); setTimeout(() => playSound(120, 0.25, 'sawtooth', 0.15), 150); }
+function sfxDogDeath() {
+    playSound(200, 0.3, 'sawtooth', 0.2);
+    [300,400,500,700,900].forEach((f,i) => setTimeout(() => playSound(f, 0.15, 'sine', 0.12), i*80));
+}
 
 // ============= MUSIC =============
 const musicTracks = [
@@ -253,8 +268,8 @@ const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/
 
 // Set controls text
 document.getElementById('controls-text').innerHTML = isMobile
-    ? '◀ ▶ = Laufen | JUMP = Springen | 🦠 = Schießen<br>🐟 Fische sammeln | 🥒 Gurken ausweichen'
-    : '⌨️ Pfeile/WASD = Laufen &amp; Springen | X = Schießen | 🎮 Gamepad<br>🐟 Fische | 🥒 Gurken | ❓ Blöcke von unten!';
+    ? '◀ ▶ = Laufen | JUMP | 🦠 Schießen | 💣 Bombe<br>🐟 Fische | 🥒 Gurken | 🐕 Hund = nur Bombe!'
+    : '⌨️ Pfeile/WASD = Bewegen | Leertaste = Springen<br>X = Schießen 🦠 | C = Katzenklo-Bombe 💣<br>🎮 A/B = Springen | X/Y = Schießen | LB/RB = Bombe<br>❓ Blöcke von unten! | 🐕 Riesenhund = nur Bombe!';
 
 // ============= GAME STATE =============
 let state = 'title';
@@ -272,6 +287,10 @@ let qBlocks = [], healthPickups = [], oneUps = [];
 let projectiles = [], powerupItems = [];
 let goalFlag = null;
 let celebrateTimer = 0;
+let bombs = []; // thrown bomb projectiles
+let dogs = []; // giant dog enemies
+let bombPickups = []; // bomb ammo pickups in world
+let shakeTimer = 0, shakeIntensity = 0;
 function getGroundY() { return vh() * GROUND_Y_RATIO; }
 
 // Show highscore on title
@@ -286,6 +305,8 @@ function generateWorld() {
     groundY = getGroundY();
     platforms = []; fishes = []; cucumbers = []; boxes = []; lasers = []; signs = [];
     qBlocks = []; healthPickups = []; oneUps = []; powerupItems = []; projectiles = [];
+
+    bombs = []; dogs = []; bombPickups = [];
 
     const lvl = currentLevel;
     let px = 300;
@@ -355,6 +376,23 @@ function generateWorld() {
             signs.push({ x: px + Math.random() * 200, y: groundY - 120 - Math.random() * 100, ...sign });
         }
 
+        // Bomb pickups (every ~15 platforms, on platforms)
+        if (i > 5 && i % 15 === 7) {
+            bombPickups.push({ x: px + pw * 0.5, y: py - 22, alive: true });
+        }
+
+        // Giant dog spawn (every ~35 platforms from platform 20+)
+        if (i > 20 && i % 35 === 0) {
+            dogs.push({
+                x: px + 300, startY: -150,
+                y: -150, vx: 0, vy: 0,
+                w: 100, h: 80,
+                alive: true, grounded: false,
+                activated: false, triggerX: px - 200,
+                barkTimer: 0,
+            });
+        }
+
         // === SKY TOWER — vertical secret route every ~20 platforms ===
         if (i > 5 && i % 20 === 10) {
             const towerBaseX = px + pw * 0.5;
@@ -412,11 +450,14 @@ function reset() {
         hp: 3, maxHp: 3,
         powerState: 'small',
         invincibleTimer: 0, shootCooldown: 0,
+        bombCount: 3, bombCooldown: 0,
     };
     camera = { x: 0, y: groundY - vh() * 0.88 };
     score = 0; lives = 3; combo = 0; comboTimer = 0; speedBoost = 0;
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
+    bombs = []; dogs = []; bombPickups = [];
+    shakeTimer = 0; shakeIntensity = 0;
     deathPos = null; deathMeme = '';
     generateWorld();
 }
@@ -835,6 +876,97 @@ function drawGravestone(sx, sy, progress) {
     }
 }
 
+function drawBombProjectile(x, y, fr) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(fr * 0.2);
+    ctx.font = '18px serif'; ctx.textAlign = 'center'; ctx.fillText('💣', 0, 6);
+    ctx.restore();
+}
+
+function drawBombPickup(x, y, fr) {
+    const bob = Math.sin(fr * 0.1) * 3;
+    ctx.font = '18px serif'; ctx.textAlign = 'center'; ctx.fillText('💣', x, y + bob);
+    ctx.fillStyle = '#FFA500'; ctx.font = 'bold 8px Comic Sans MS';
+    ctx.fillText('+1', x, y + bob + 14);
+}
+
+function drawDog(dog, fr) {
+    const x = dog.x, y = dog.y, w = dog.w, h = dog.h;
+    const dir = dog.vx >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir < 0) ctx.scale(-1, 1);
+
+    // Shadow underneath
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath(); ctx.ellipse(0, h*0.45, w*0.4, 8, 0, 0, Math.PI*2); ctx.fill();
+
+    // Body
+    ctx.fillStyle = '#8B5E3C';
+    ctx.beginPath(); ctx.ellipse(0, 0, w*0.45, h*0.35, 0, 0, Math.PI*2); ctx.fill();
+
+    // Head
+    ctx.fillStyle = '#A0704B';
+    ctx.beginPath(); ctx.arc(w*0.35, -h*0.15, h*0.32, 0, Math.PI*2); ctx.fill();
+
+    // Snout
+    ctx.fillStyle = '#C4956A';
+    ctx.beginPath(); ctx.ellipse(w*0.52, -h*0.05, h*0.18, h*0.12, 0, 0, Math.PI*2); ctx.fill();
+
+    // Nose
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(w*0.58, -h*0.08, h*0.06, 0, Math.PI*2); ctx.fill();
+
+    // Mouth (open, showing teeth)
+    ctx.fillStyle = '#600';
+    ctx.beginPath(); ctx.ellipse(w*0.52, h*0.03, h*0.14, h*0.08, 0, 0, Math.PI); ctx.fill();
+    // Teeth
+    ctx.fillStyle = '#FFF';
+    for (let t = 0; t < 4; t++) {
+        ctx.fillRect(w*0.42 + t*h*0.06, -h*0.01, h*0.04, h*0.06);
+    }
+
+    // Eyes (angry)
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath(); ctx.arc(w*0.28, -h*0.25, h*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w*0.42, -h*0.25, h*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#C00';
+    ctx.beginPath(); ctx.arc(w*0.30, -h*0.25, h*0.05, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w*0.44, -h*0.25, h*0.05, 0, Math.PI*2); ctx.fill();
+    // Angry brows
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(w*0.20, -h*0.35); ctx.lineTo(w*0.32, -h*0.30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w*0.52, -h*0.30); ctx.lineTo(w*0.40, -h*0.35); ctx.stroke();
+
+    // Ears (floppy)
+    ctx.fillStyle = '#7A5030';
+    ctx.beginPath(); ctx.ellipse(w*0.18, -h*0.20, h*0.08, h*0.18, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(w*0.50, -h*0.20, h*0.08, h*0.18, 0.4, 0, Math.PI*2); ctx.fill();
+
+    // Legs (animated)
+    ctx.fillStyle = '#8B5E3C';
+    const la = Math.sin(fr * 0.15) * h * 0.1;
+    ctx.fillRect(-w*0.30, h*0.15, w*0.12, h*0.30+la);
+    ctx.fillRect(-w*0.10, h*0.15, w*0.12, h*0.30-la);
+    ctx.fillRect(w*0.10, h*0.15, w*0.12, h*0.30+la);
+    ctx.fillRect(w*0.25, h*0.15, w*0.12, h*0.30-la);
+
+    // Tail
+    ctx.strokeStyle = '#8B5E3C'; ctx.lineWidth = h*0.06; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-w*0.40, -h*0.05);
+    ctx.quadraticCurveTo(-w*0.55, -h*0.3+Math.sin(fr*0.1)*h*0.1, -w*0.45, -h*0.4);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Bark indicator
+    if (dog.barkTimer > 0) {
+        ctx.font = 'bold 16px Comic Sans MS'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#FF4444'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.strokeText('WOOF!', x + dir * 40, y - h*0.5 - 10);
+        ctx.fillText('WOOF!', x + dir * 40, y - h*0.5 - 10);
+    }
+}
+
 // ============= PARTICLES =============
 function spawnParticles(x, y, color, count, speed) {
     for (let i = 0; i < count; i++) {
@@ -868,16 +1000,16 @@ canvas.addEventListener('click', () => {
 document.getElementById('start-btn').addEventListener('click', () => { audioCtx.resume(); startGame(); });
 
 // Gamepad
-let gpJumpPrev = false, gpStartPrev = false, gpShootPrev = false;
+let gpJumpPrev = false, gpStartPrev = false, gpShootPrev = false, gpBombPrev = false;
 function pollGamepad() {
     const gps = navigator.getGamepads(); if (!gps) return;
     for (const gp of gps) {
         if (!gp) continue;
         if (gp.axes[0] < -0.3 || (gp.buttons[14] && gp.buttons[14].pressed)) keys['_gpLeft'] = true; else keys['_gpLeft'] = false;
         if (gp.axes[0] > 0.3 || (gp.buttons[15] && gp.buttons[15].pressed)) keys['_gpRight'] = true; else keys['_gpRight'] = false;
-        // Jump: A(0), B(1), LB(4), RB(5), D-Up(12)
+        // Jump: A(0), B(1), D-Up(12)
         let jump = false;
-        for (const bi of [0,1,4,5,12]) { if (gp.buttons[bi] && gp.buttons[bi].pressed) jump = true; }
+        for (const bi of [0,1,12]) { if (gp.buttons[bi] && gp.buttons[bi].pressed) jump = true; }
         if (gp.axes[1] < -0.5) jump = true;
         if (jump && !gpJumpPrev) keys['_gpJump'] = true;
         gpJumpPrev = jump;
@@ -887,6 +1019,11 @@ function pollGamepad() {
         if (shoot && !gpShootPrev) keys['_gpShootEdge'] = true;
         keys['_gpShoot'] = shoot;
         gpShootPrev = shoot;
+        // Bomb: LB(4), RB(5)
+        let bomb = false;
+        for (const bi of [4,5]) { if (gp.buttons[bi] && gp.buttons[bi].pressed) bomb = true; }
+        if (bomb && !gpBombPrev) keys['_gpBombEdge'] = true;
+        gpBombPrev = bomb;
         // Start button (9)
         const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
         if (startPressed && !gpStartPrev) {
@@ -910,6 +1047,10 @@ if (isMobile) {
     mobBtn('btn-left', '_mobLeft');
     mobBtn('btn-right', '_mobRight');
     mobBtn('btn-shoot', '_mobShoot');
+    const bombEl = document.getElementById('btn-bomb');
+    bombEl.addEventListener('touchstart', e => { e.preventDefault(); keys['_mobBomb'] = true; }, { passive: false });
+    bombEl.addEventListener('touchend', e => { e.preventDefault(); keys['_mobBomb'] = false; }, { passive: false });
+    bombEl.addEventListener('touchcancel', e => { keys['_mobBomb'] = false; });
     const jumpEl = document.getElementById('btn-jump');
     jumpEl.addEventListener('touchstart', e => { e.preventDefault(); keys['_mobJump'] = true; }, { passive: false });
     jumpEl.addEventListener('touchend', e => { e.preventDefault(); }, { passive: false });
@@ -966,6 +1107,7 @@ function completeLevel() {
     camera = { x: 0, y: groundY - vh() * 0.88 };
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
+    bombs = []; dogs = []; bombPickups = [];
     showTransition();
 }
 
@@ -1007,6 +1149,8 @@ function loseLife() {
     camera = { x: 0, y: groundY - vh() * 0.88 };
     // Reset enemies to alive
     for (const c of cucumbers) { c.alive = true; }
+    for (const d of dogs) { d.alive = true; d.activated = false; d.landed = false; d.y = d.startY || -200; d.vy = 0; }
+    bombs = [];
     sfxDeath();
     showMeme("Leben verloren! 🐱 x" + lives, 150, groundY - 60, '#FF4444');
 }
@@ -1368,6 +1512,173 @@ function update() {
     }
     projectiles = projectiles.filter(p => p.alive);
 
+    // === BOMB THROWING ===
+    const wantBomb = keys['KeyC'] || keys['_gpBombEdge'] || keys['_mobBomb'];
+    keys['_gpBombEdge'] = false;
+    if (wantBomb && cat.bombCount > 0 && cat.bombCooldown <= 0) {
+        cat.bombCount--;
+        cat.bombCooldown = 30;
+        bombs.push({
+            x: cat.x + cat.dir * 15, y: cat.y - cat.size * 0.3,
+            vx: cat.dir * 6, vy: -8,
+            alive: true,
+        });
+        sfxBombThrow();
+    }
+    if (cat.bombCooldown > 0) cat.bombCooldown--;
+
+    // Bomb physics + explosion
+    for (const bm of bombs) {
+        if (!bm.alive) continue;
+        bm.vy += GRAVITY;
+        bm.x += bm.vx;
+        bm.y += bm.vy;
+
+        let explode = false;
+        let megaExplode = false;
+        let hitPlatformIdx = -1;
+
+        // Hit a Katzenklo platform → MEGA explosion
+        for (let pi = 0; pi < platforms.length; pi++) {
+            const p = platforms[pi];
+            if (bm.x > p.x && bm.x < p.x + p.w && bm.y > p.y && bm.y < p.y + p.h + 10) {
+                explode = true; megaExplode = true; hitPlatformIdx = pi;
+                break;
+            }
+        }
+        // Hit ground
+        if (!explode && bm.y >= groundY - 5) {
+            explode = true;
+        }
+
+        if (explode) {
+            bm.alive = false;
+            sfxBombExplode();
+            shakeTimer = megaExplode ? 30 : 15;
+            shakeIntensity = megaExplode ? 12 : 6;
+
+            const ex = bm.x, ey = megaExplode ? platforms[hitPlatformIdx].y : groundY;
+            const killRadius = megaExplode ? vw() * 3 : vw();
+
+            // Destroy platform
+            if (megaExplode && hitPlatformIdx >= 0) {
+                const dp = platforms[hitPlatformIdx];
+                // Explosion particles: 💩 emojis + litter
+                for (let ep = 0; ep < 20; ep++) {
+                    const a = Math.random() * Math.PI * 2;
+                    const sp = 3 + Math.random() * 6;
+                    particles.push({
+                        x: dp.x + dp.w * Math.random(), y: dp.y,
+                        vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 4,
+                        life: 1, decay: 0.01+Math.random()*0.015,
+                        color: Math.random() > 0.5 ? '#8B6914' : '#C4A87A',
+                        size: 4+Math.random()*6,
+                    });
+                }
+                // Poop emoji memes flying
+                for (let pe = 0; pe < 6; pe++) {
+                    showMeme('💩', dp.x + Math.random() * dp.w, dp.y - 20 - Math.random() * 60, '#8B4513');
+                }
+                showMeme('KATZENKLO EXPLODIERT! 💥💩', ex, ey - 50, '#FF8800');
+                platforms.splice(hitPlatformIdx, 1);
+            } else {
+                showMeme('BOOM! 💣💥', ex, ey - 40, '#FF4444');
+            }
+
+            // Big explosion particles
+            spawnParticles(ex, ey, '#FF4400', 25, 7);
+            spawnParticles(ex, ey, '#FFD700', 15, 5);
+            spawnParticles(ex, ey, '#8B6914', 10, 4);
+
+            // Kill all enemies in radius
+            for (const c of cucumbers) {
+                if (c.alive && Math.abs(c.x - ex) < killRadius) {
+                    c.alive = false; score += 5;
+                    spawnParticles(c.x, c.y, '#228B22', 6, 3);
+                }
+            }
+            // Kill dogs in radius
+            for (const dog of dogs) {
+                if (dog.alive && dog.activated && Math.abs(dog.x - ex) < killRadius) {
+                    dog.alive = false; score += 20;
+                    sfxDogDeath();
+                    spawnParticles(dog.x, dog.y, '#8B5E3C', 30, 8);
+                    showMeme('HUND WEG! 🐕💥🎉', dog.x, dog.y - 60, '#FFD700');
+                }
+            }
+        }
+    }
+    bombs = bombs.filter(b => b.alive);
+
+    // Bomb pickups
+    for (const bp of bombPickups) {
+        if (!bp.alive) continue;
+        if (Math.abs(cat.x - bp.x) < cat.size + 12 && Math.abs(cat.y - bp.y) < cat.size + 12) {
+            bp.alive = false; cat.bombCount++;
+            sfxCollect();
+            showMeme('+1 BOMBE! 💣', bp.x, bp.y - 25, '#FFA500');
+            spawnParticles(bp.x, bp.y, '#FFA500', 4, 2);
+        }
+    }
+
+    // === GIANT DOG AI ===
+    for (const dog of dogs) {
+        if (!dog.alive) continue;
+
+        // Activate when cat gets close
+        if (!dog.activated && cat.x >= dog.triggerX) {
+            dog.activated = true;
+            dog.y = camera.y - 50;
+            sfxDogBark();
+            showMeme('🐕 WOOF WOOF! 🐕', dog.x, camera.y + 30, '#FF4444');
+        }
+        if (!dog.activated) continue;
+
+        // Fall with gravity
+        if (!dog.grounded) {
+            dog.vy += GRAVITY;
+            dog.y += dog.vy;
+            if (dog.y + dog.h * 0.45 >= groundY) {
+                dog.y = groundY - dog.h * 0.45;
+                dog.vy = 0;
+                dog.grounded = true;
+                shakeTimer = 15; shakeIntensity = 8;
+                sfxDogBark();
+            }
+        }
+
+        // Chase cat (slow, clumsy)
+        if (dog.grounded) {
+            const chaseSpeed = 2.2;
+            if (cat.x < dog.x - 20) dog.vx = -chaseSpeed;
+            else if (cat.x > dog.x + 20) dog.vx = chaseSpeed;
+            else dog.vx = 0;
+            dog.x += dog.vx;
+
+            // Bark periodically
+            dog.barkTimer--;
+            if (dog.barkTimer <= 0) {
+                dog.barkTimer = 90 + Math.floor(Math.random() * 60);
+                if (Math.abs(dog.x - cat.x) < vw()) sfxDogBark();
+            }
+        }
+
+        // Collision with cat (cat takes damage)
+        if (dog.grounded && cat.invincibleTimer <= 0) {
+            const dx = cat.x - dog.x;
+            const dy = cat.y - dog.y;
+            if (Math.abs(dx) < dog.w * 0.4 + cat.size * 0.3 &&
+                Math.abs(dy) < dog.h * 0.4 + cat.size * 0.3) {
+                takeDamage();
+                cat.vx = (dx > 0 ? 1 : -1) * 10;
+                cat.vy = JUMP_FORCE * 0.7;
+            }
+        }
+    }
+
+    // Screen shake decay
+    if (shakeTimer > 0) shakeTimer--;
+
     // Cucumbers
     for (const c of cucumbers) {
         if (!c.alive) continue;
@@ -1437,6 +1748,7 @@ function update() {
     document.getElementById('combo-display').textContent =
         combo >= 2 ? '🔥 x' + combo + (speedBoost > 0 ? ' 🔴SPEED!' : '')
         : (speedBoost > 0 ? '🔴 SPEED!' : '');
+    document.getElementById('bomb-display').textContent = '💣 x' + cat.bombCount;
 }
 
 // ============= RENDER =============
@@ -1459,16 +1771,20 @@ function render() {
         return;
     }
 
+    // Screen shake offset
+    const sx = shakeTimer > 0 ? (Math.random()-0.5) * shakeIntensity * (shakeTimer/30) : 0;
+    const sy = shakeTimer > 0 ? (Math.random()-0.5) * shakeIntensity * (shakeTimer/30) : 0;
+
     // Sky + ground
     ctx.save();
-    ctx.translate(0, -camera.y);
+    ctx.translate(sx, -camera.y + sy);
     drawSky();
     drawGround();
     ctx.restore();
 
     // World objects
     ctx.save();
-    ctx.translate(-camera.x, -camera.y);
+    ctx.translate(-camera.x + sx, -camera.y + sy);
 
     // Signs
     for (const s of signs) {
@@ -1510,6 +1826,12 @@ function render() {
     for (const c of cucumbers) { if (c.alive) drawCucumber(c.x, c.y, 16, frame); }
     // Projectiles
     for (const proj of projectiles) { if (proj.alive) drawProjectile(proj.x, proj.y, frame); }
+    // Bombs in flight
+    for (const bm of bombs) { if (bm.alive) drawBombProjectile(bm.x, bm.y, frame); }
+    // Bomb pickups
+    for (const bp of bombPickups) { if (bp.alive) drawBombPickup(bp.x, bp.y, frame); }
+    // Dogs
+    for (const dog of dogs) { if (dog.alive && dog.activated) drawDog(dog, frame); }
     // Particles
     for (const p of particles) {
         ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
