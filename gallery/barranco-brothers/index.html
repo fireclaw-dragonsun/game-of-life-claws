@@ -396,7 +396,6 @@ function genLevel(w, l) {
   let curY = startY, prevPx = VW/2;
   let nextCaveY = startY - 300 - rng() * 200;
   let nextNpcY = startY - 200 - rng() * 300;
-  const usedPlatY = new Set(); // track platforms with NPCs — one NPC per platform, always
 
   while (curY > 200) {
     const gap = Math.min(50 + rng() * 25 + d * 0.3, 72);
@@ -422,8 +421,11 @@ function genLevel(w, l) {
     if (type === 'moving') { p.sx = nx; p.range = 30+rng()*40; p.mspd = 0.5+rng()*0.8; p.phase = rng()*Math.PI*2; }
     ps.push(p);
 
+    // === ONE NPC PER PLATFORM — flag directly on platform object ===
+    let platTaken = false;
+
     // Cave placement (on wider solid platforms near walls)
-    if (curY < nextCaveY && type === 'solid' && pw > 60 && !usedPlatY.has(curY)) {
+    if (curY < nextCaveY && type === 'solid' && pw > 60) {
       const side = nx < VW/2 ? 'left' : 'right';
       const hippieX = side === 'left' ? nx + 12 : nx + pw - 16;
       const offers = rng() < 0.5 ? 'machete' : 'weed';
@@ -434,12 +436,12 @@ function genLevel(w, l) {
         quote: QUOTES[Math.floor(rng() * QUOTES.length)],
         offers, cost, traded: false, side
       });
-      usedPlatY.add(curY);
+      platTaken = true;
       nextCaveY = curY - 350 - rng() * 250;
     }
 
-    // Enemies (from level 1-2 onward)
-    if (diff > 1 && type === 'solid' && pw > 55 && rng() < 0.12 + d * 0.01) {
+    // Enemies (from level 1-2 onward, NOT on platforms with NPCs)
+    if (!platTaken && diff > 1 && type === 'solid' && pw > 55 && rng() < 0.12 + d * 0.01) {
       en.push({
         x: nx + pw/2, y: curY - 26, platX: nx, platW: pw,
         vx: 0.4 + rng() * 0.6, dir: rng() < 0.5 ? 1 : -1,
@@ -463,8 +465,8 @@ function genLevel(w, l) {
       cs.push({ type: types[Math.floor(rng()*types.length)], x: nx+pw/2, y: curY-20, got:false });
     }
 
-    // NPC vendors (abuela + cook) — never on a platform that already has someone
-    if (curY < nextNpcY && type === 'solid' && pw > 62 && !usedPlatY.has(curY)) {
+    // NPC vendors (abuela + cook) — only if platform is still free
+    if (!platTaken && curY < nextNpcY && type === 'solid' && pw > 62) {
       const npcType = rng() < 0.5 ? 'abuela' : 'cook';
       const npcX = nx + 8 + rng() * (pw - 24);
       const quotes = npcType === 'abuela' ? ABUELA_Q : COOK_Q;
@@ -475,7 +477,7 @@ function genLevel(w, l) {
         cost: npcType === 'abuela' ? 'banana' : 'water',
         traded: false, face: rng() < 0.5 ? 1 : -1
       });
-      usedPlatY.add(curY);
+      platTaken = true;
       nextNpcY = curY - 400 - rng() * 300;
     }
 
