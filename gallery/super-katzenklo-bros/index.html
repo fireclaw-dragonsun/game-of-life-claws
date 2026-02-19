@@ -89,6 +89,7 @@ canvas { display: block; }
     <div class="level-name" id="trans-level"></div>
     <div class="level-sub" id="trans-sub"></div>
     <div class="lives-info" id="trans-lives"></div>
+    <div class="lives-info" id="trans-time" style="display:none; color:#FFD700; font-size:1.3em; margin-top:12px;"></div>
 </div>
 
 <div id="victory-screen">
@@ -105,6 +106,7 @@ canvas { display: block; }
         <div class="stat" id="hp-display">♥♥♥</div>
         <div class="stat" id="lives-display">🐱 x3</div>
         <div class="stat" id="bomb-display">💣 x3</div>
+        <div class="stat" id="time-display">⏱ 0:00</div>
         <div class="stat" id="combo-display"></div>
     </div>
 </div>
@@ -236,6 +238,9 @@ function sfxDogDeath() {
 }
 function sfxEagleScreech() { playSound(800, 0.3, 'sawtooth', 0.15); setTimeout(() => playSound(1200, 0.25, 'sawtooth', 0.12), 80); setTimeout(() => playSound(600, 0.2, 'sawtooth', 0.1), 180); }
 function sfxEagleSwoopWarning() { playSound(400, 0.1, 'sine', 0.2); setTimeout(() => playSound(500, 0.1, 'sine', 0.15), 100); setTimeout(() => playSound(600, 0.1, 'sine', 0.1), 200); }
+function sfxClotheslineGrab() { playSound(300, 0.1, 'triangle', 0.08); playSound(450, 0.08, 'triangle', 0.06); }
+function sfxOmaSpray() { playSound(200, 0.3, 'sawtooth', 0.15); setTimeout(() => playSound(180, 0.25, 'sawtooth', 0.12), 50); setTimeout(() => playSound(160, 0.2, 'sawtooth', 0.1), 100); }
+function sfxOmaYell() { playSound(350, 0.2, 'square', 0.12); setTimeout(() => playSound(400, 0.15, 'square', 0.1), 100); }
 
 // ============= MUSIC =============
 const musicTracks = [
@@ -293,7 +298,12 @@ let bombs = []; // thrown bomb projectiles
 let dogs = []; // giant dog enemies
 let bombPickups = []; // bomb ammo pickups in world
 let eagles = []; // eagle enemies that swoop from above
+let clotheslines = []; // clotheslines between platforms
+let omas = []; // grandmas that spray water when cat uses clothesline
 let shakeTimer = 0, shakeIntensity = 0;
+let levelStartTime = 0; // timestamp when level started (for timer)
+let levelTimes = {}; // per-level best times in localStorage
+try { levelTimes = JSON.parse(localStorage.getItem('skb_times')) || {}; } catch(e) { levelTimes = {}; }
 
 // Dog breed definitions
 const DOG_BREEDS = {
@@ -318,9 +328,11 @@ function generateWorld() {
     qBlocks = []; healthPickups = []; oneUps = []; powerupItems = []; projectiles = [];
 
     bombs = []; dogs = []; bombPickups = []; eagles = [];
+    clotheslines = []; omas = [];
 
     const lvl = currentLevel;
     let px = 300;
+    let prevPlatform = null; // track previous platform for clotheslines
     for (let i = 0; i < lvl.length; i++) {
         const spacing = lvl.spacing[0] + Math.random() * (lvl.spacing[1] - lvl.spacing[0]);
         const maxH = Math.min(lvl.maxHBase + i * lvl.maxHGrow, lvl.maxHCap);
@@ -392,13 +404,13 @@ function generateWorld() {
             bombPickups.push({ x: px + pw * 0.5, y: py - 22, alive: true });
         }
 
-        // Dog spawns — varied breeds
-        if (i > 10 && i % 12 === 0) {
+        // Dog spawns — varied breeds (in ALL levels)
+        if (i > 6 && i % 10 === 0) {
             // Pick breed based on level & position
             let breed;
-            if (i > 60 && i % 60 === 0 && currentLevelIdx >= 2) {
+            if (i > 50 && i % 50 === 0 && currentLevelIdx >= 2) {
                 breed = 'megadog'; // MEGA DOG — only in later levels, very rare
-            } else if (i > 30 && Math.random() < 0.3) {
+            } else if (i > 25 && Math.random() < 0.25 + currentLevelIdx * 0.05) {
                 breed = 'rottweiler';
             } else if (Math.random() < 0.5) {
                 breed = 'chihuahua';
@@ -416,8 +428,8 @@ function generateWorld() {
             });
         }
 
-        // Eagle spawns (every ~25 platforms from platform 15+)
-        if (i > 15 && i % 25 === 5) {
+        // Eagle spawns (in ALL levels, every ~20 platforms from platform 8+)
+        if (i > 8 && i % 20 === 5) {
             eagles.push({
                 x: px, startX: px,
                 y: 0, // will be set relative to camera when activated
@@ -433,6 +445,28 @@ function generateWorld() {
                 wingPhase: 0,
             });
         }
+
+        // Clothesline between consecutive platforms (every ~14 platforms)
+        if (prevPlatform && i > 4 && i % 14 === 3) {
+            const pp = prevPlatform;
+            const clY = Math.min(pp.y, py) - 15; // line is above both platforms
+            clotheslines.push({
+                x1: pp.x + pp.w - 5, y: clY,
+                x2: px + 5, yEnd: clY,
+                active: false, // becomes true when cat grabs it
+            });
+            // Oma behind a door at the midpoint
+            const midX = (pp.x + pp.w + px) * 0.5;
+            omas.push({
+                x: midX, y: groundY, // stands on ground
+                clotheslineIdx: clotheslines.length - 1,
+                active: false, // becomes true when cat is on the clothesline
+                sprayTimer: 0,
+                doorOpen: false,
+                yelling: false, yellTimer: 0,
+            });
+        }
+        prevPlatform = { x: px, y: py, w: pw };
 
         // === SKY TOWER — vertical secret route every ~20 platforms ===
         if (i > 5 && i % 20 === 10) {
@@ -498,8 +532,10 @@ function reset() {
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
     bombs = []; dogs = []; bombPickups = []; eagles = [];
+    clotheslines = []; omas = [];
     shakeTimer = 0; shakeIntensity = 0;
     deathPos = null; deathMeme = '';
+    levelStartTime = Date.now();
     generateWorld();
 }
 
@@ -1156,6 +1192,140 @@ function drawEagle(eagle, fr) {
     }
 }
 
+// ============= CLOTHESLINE + OMA =============
+function drawClothesline(cl, fr) {
+    // The rope
+    const sag = 8 + Math.sin(fr * 0.05) * 2; // slight sway
+    ctx.strokeStyle = '#8B7355';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cl.x1, cl.y);
+    const midX = (cl.x1 + cl.x2) * 0.5;
+    ctx.quadraticCurveTo(midX, cl.y + sag, cl.x2, cl.yEnd);
+    ctx.stroke();
+
+    // Clothesline posts (small wooden sticks on platforms)
+    ctx.fillStyle = '#6B4226';
+    ctx.fillRect(cl.x1 - 2, cl.y - 12, 4, 14);
+    ctx.fillRect(cl.x2 - 2, cl.yEnd - 12, 4, 14);
+
+    // Hanging clothes (decorative)
+    const items = ['👕', '🧦', '👙', '🩲', '🧤'];
+    const count = Math.max(2, Math.floor((cl.x2 - cl.x1) / 60));
+    for (let c = 0; c < count; c++) {
+        const t = (c + 0.5) / count;
+        const ix = cl.x1 + (cl.x2 - cl.x1) * t;
+        const iy = cl.y + sag * Math.sin(t * Math.PI) + 8;
+        ctx.font = '14px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(items[c % items.length], ix, iy);
+    }
+}
+
+function drawOma(oma, fr) {
+    const x = oma.x, y = oma.y;
+
+    // Door in background
+    ctx.fillStyle = '#5A3A1A';
+    ctx.fillRect(x - 18, y - 55, 36, 55);
+    ctx.fillStyle = '#3A2210';
+    ctx.fillRect(x - 15, y - 52, 30, 52);
+    // Door knob
+    ctx.fillStyle = '#DAA520';
+    ctx.beginPath(); ctx.arc(x + 10, y - 26, 3, 0, Math.PI*2); ctx.fill();
+
+    if (!oma.doorOpen) return;
+
+    // Oma body
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Dress
+    ctx.fillStyle = '#9B59B6'; // purple dress
+    ctx.beginPath();
+    ctx.moveTo(-10, -30); ctx.lineTo(-14, 0); ctx.lineTo(14, 0); ctx.lineTo(10, -30);
+    ctx.closePath(); ctx.fill();
+
+    // Head
+    ctx.fillStyle = '#FDBCB4'; // skin
+    ctx.beginPath(); ctx.arc(0, -38, 12, 0, Math.PI*2); ctx.fill();
+
+    // Hair bun (grey)
+    ctx.fillStyle = '#AAA';
+    ctx.beginPath(); ctx.arc(0, -48, 8, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-6, -44, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6, -44, 5, 0, Math.PI*2); ctx.fill();
+
+    // Glasses
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(-5, -38, 4, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(5, -38, 4, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-1, -38); ctx.lineTo(1, -38); ctx.stroke();
+
+    // Angry mouth
+    ctx.fillStyle = '#C00';
+    ctx.beginPath(); ctx.arc(0, -33, 3, 0, Math.PI); ctx.fill();
+
+    // Arms holding hose
+    ctx.strokeStyle = '#FDBCB4'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    const armAng = Math.sin(fr * 0.1) * 0.2;
+    ctx.beginPath(); ctx.moveTo(-10, -25); ctx.lineTo(-20, -15 + armAng * 5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(10, -25); ctx.lineTo(20, -18 + armAng * 3); ctx.stroke();
+
+    // Hose
+    if (oma.active) {
+        ctx.strokeStyle = '#2E8B57';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(20, -18);
+        ctx.quadraticCurveTo(30, -25, 35, -20);
+        ctx.stroke();
+        // Hose nozzle
+        ctx.fillStyle = '#666';
+        ctx.fillRect(33, -23, 6, 6);
+    }
+
+    ctx.restore();
+
+    // Yelling text
+    if (oma.yellTimer > 0) {
+        const yellTexts = ['RUNTER DA!!', 'MEINE WÄSCHE!!', 'FRECHDACHS!!', 'KATZENVOLK!!', 'SCHSCH!! WEG!!'];
+        const yt = yellTexts[Math.floor(fr * 0.02) % yellTexts.length];
+        ctx.font = 'bold 13px Comic Sans MS'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#FF0000'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.strokeText(yt, x, y - 65);
+        ctx.fillText(yt, x, y - 65);
+    }
+}
+
+function drawWaterSpray(oma, fr) {
+    if (!oma.active || oma.sprayTimer <= 0) return;
+    // Water particles spraying upward toward the clothesline
+    const cl = clotheslines[oma.clotheslineIdx];
+    if (!cl) return;
+    const sx = oma.x + 35;
+    const sy = oma.y - 20;
+    const tx = (cl.x1 + cl.x2) * 0.5; // aim at clothesline midpoint
+    const ty = cl.y;
+    // Spray droplets
+    ctx.fillStyle = 'rgba(30,144,255,0.6)';
+    for (let d = 0; d < 8; d++) {
+        const t = (d + fr * 0.2) % 8 / 8;
+        const dx = sx + (tx - sx) * t + (Math.random() - 0.5) * 20 * t;
+        const dy = sy + (ty - sy) * t + (Math.random() - 0.5) * 15 * t;
+        const sz = 2 + t * 3;
+        ctx.beginPath(); ctx.arc(dx, dy, sz, 0, Math.PI*2); ctx.fill();
+    }
+    // Splash effect at nozzle
+    ctx.fillStyle = 'rgba(100,200,255,0.4)';
+    for (let s = 0; s < 4; s++) {
+        const a = fr * 0.3 + s * 1.5;
+        ctx.beginPath();
+        ctx.arc(sx + Math.cos(a) * 8, sy + Math.sin(a) * 5, 3, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
 // ============= PARTICLES =============
 function spawnParticles(x, y, color, count, speed) {
     for (let i = 0; i < count; i++) {
@@ -1258,21 +1428,56 @@ function startGame() {
     showTransition();
 }
 
-function showTransition() {
+function formatTime(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    const tenths = Math.floor((ms % 1000) / 100);
+    return min + ':' + (sec < 10 ? '0' : '') + sec + '.' + tenths;
+}
+
+function showTransition(prevLevelTime) {
     state = 'transition';
-    transitionTimer = 120;
+    transitionTimer = prevLevelTime ? 200 : 120; // longer if showing results
     document.getElementById('trans-level').textContent = currentLevel.name;
     document.getElementById('trans-sub').textContent = currentLevel.subtitle;
     document.getElementById('trans-lives').textContent = '🐱 x ' + lives;
+    // Show level time results if we just completed a level
+    if (prevLevelTime) {
+        const prevId = LEVELS[currentLevelIdx - 1] ? LEVELS[currentLevelIdx - 1].id : '';
+        const bestKey = (isMobile ? 'm_' : '') + prevId;
+        const best = levelTimes[bestKey] || 0;
+        let timeText = '⏱ Zeit: ' + formatTime(prevLevelTime);
+        if (best > 0 && prevLevelTime < best) {
+            timeText += ' ⭐ NEUE BESTZEIT!';
+        } else if (best > 0) {
+            timeText += ' | Best: ' + formatTime(best);
+        }
+        document.getElementById('trans-time').textContent = timeText;
+        document.getElementById('trans-time').style.display = 'block';
+    } else {
+        document.getElementById('trans-time').style.display = 'none';
+    }
     document.getElementById('transition-screen').style.display = 'flex';
     document.getElementById('hud').style.display = 'none';
     if (isMobile) document.getElementById('mobile-controls').style.display = 'none';
 }
 
 function completeLevel() {
+    // Calculate level time
+    const levelTime = Date.now() - levelStartTime;
+    const completedId = currentLevel.id;
+    const bestKey = (isMobile ? 'm_' : '') + completedId;
+
+    // Save level time highscore
+    if (!levelTimes[bestKey] || levelTime < levelTimes[bestKey]) {
+        levelTimes[bestKey] = levelTime;
+        try { localStorage.setItem('skb_times', JSON.stringify(levelTimes)); } catch(e) {}
+    }
+
     currentLevelIdx++;
 
-    // Save highscore
+    // Save score highscore
     if (isMobile) {
         if (score > highScoreMobile) { highScoreMobile = score; try { localStorage.setItem('skb_hi_mobile', highScoreMobile); } catch(e){} }
     } else {
@@ -1285,7 +1490,15 @@ function completeLevel() {
         document.getElementById('hud').style.display = 'none';
         if (isMobile) document.getElementById('mobile-controls').style.display = 'none';
         const best = isMobile ? highScoreMobile : highScore;
-        document.getElementById('victory-score').textContent = '🐟 ' + score + ' Fische | Best: ' + best;
+        // Show total time for all levels
+        let totalTime = 0;
+        for (const lvl of LEVELS) {
+            const k = (isMobile ? 'm_' : '') + lvl.id;
+            if (levelTimes[k]) totalTime += levelTimes[k];
+        }
+        document.getElementById('victory-score').textContent =
+            '🐟 ' + score + ' Fische | Best: ' + best +
+            '\n⏱ Level: ' + formatTime(levelTime) + ' | Gesamt Best: ' + formatTime(totalTime);
         document.getElementById('victory-screen').style.display = 'flex';
         return;
     }
@@ -1297,7 +1510,8 @@ function completeLevel() {
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
     bombs = []; dogs = []; bombPickups = []; eagles = [];
-    showTransition();
+    clotheslines = []; omas = [];
+    showTransition(levelTime);
 }
 
 function takeDamage() {
@@ -1340,6 +1554,8 @@ function loseLife() {
     for (const c of cucumbers) { c.alive = true; }
     for (const d of dogs) { d.alive = true; d.activated = false; d.landed = false; d.y = d.startY || -200; d.vy = 0; d.hp = DOG_BREEDS[d.breed].hp; }
     for (const e of eagles) { e.alive = true; e.activated = false; e.phase = 'flying'; e.swoopCooldown = 0; }
+    for (const cl of clotheslines) { cl.active = false; }
+    for (const oma of omas) { oma.active = false; oma.doorOpen = false; oma.sprayTimer = 0; oma.yellTimer = 0; }
     bombs = [];
     sfxDeath();
     showMeme("Leben verloren! 🐱 x" + lives, 150, groundY - 60, '#FF4444');
@@ -1383,6 +1599,7 @@ function update() {
         transitionTimer--;
         if (transitionTimer <= 0) {
             state = 'playing';
+            levelStartTime = Date.now();
             document.getElementById('transition-screen').style.display = 'none';
             document.getElementById('hud').style.display = 'flex';
             if (isMobile) document.getElementById('mobile-controls').style.display = 'block';
@@ -1469,10 +1686,12 @@ function update() {
     keys['_gpJump'] = false;
     keys['_mobJump'] = false;
 
-    // Gravity
-    cat.vy += GRAVITY;
-    cat.x += cat.vx;
-    cat.y += cat.vy;
+    // Gravity (skip if hanging on clothesline)
+    if (!cat._onClothesline) {
+        cat.vy += GRAVITY;
+        cat.x += cat.vx;
+        cat.y += cat.vy;
+    }
 
     // Ground collision
     if (cat.y + cat.size * 0.35 >= groundY) {
@@ -2012,6 +2231,89 @@ function update() {
         }
     }
 
+    // === CLOTHESLINE MECHANIC ===
+    cat._onClothesline = false;
+    for (const cl of clotheslines) {
+        // Check if cat can grab the clothesline (near the rope, jumping/falling)
+        const sag = 8;
+        const ropeY = cl.y + sag * 0.5; // approximate middle sag
+        if (cat.x > cl.x1 && cat.x < cl.x2 &&
+            Math.abs(cat.y - cat.size * 0.5 - ropeY) < 18 &&
+            cat.vy >= -2) { // not jumping upward too fast
+            // Grab the clothesline!
+            if (!cl.active) { sfxClotheslineGrab(); cl.active = true; }
+            cat._onClothesline = true;
+            cat.y = ropeY + cat.size * 0.5 + 4;
+            cat.vy = 0;
+            cat.grounded = false;
+            // Swing along the clothesline
+            const moveDir = (keys['ArrowRight']||keys['KeyD']||keys['_gpRight']||keys['_mobRight']) ? 1
+                : (keys['ArrowLeft']||keys['KeyA']||keys['_gpLeft']||keys['_mobLeft']) ? -1 : 0;
+            cat.vx = moveDir * 3.5;
+            cat.x += cat.vx;
+            // Clamp to clothesline range
+            if (cat.x < cl.x1 + 5) cat.x = cl.x1 + 5;
+            if (cat.x > cl.x2 - 5) cat.x = cl.x2 - 5;
+            // Scratching the laundry — score bonus
+            if (frame % 30 === 0 && cl.active) {
+                score += 2;
+                showMeme('KRATZ! 😼🧦', cat.x, cat.y - 30, '#FF69B4');
+            }
+            // Jump off with jump key
+            if (keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || keys['_gpJump'] || keys['_mobJump']) {
+                cat.vy = JUMP_FORCE;
+                cl.active = false;
+                cat._onClothesline = false;
+            }
+            break;
+        } else if (cl.active && !(cat.x > cl.x1 && cat.x < cl.x2)) {
+            cl.active = false;
+        }
+    }
+
+    // === OMA AI (grandma with water hose) ===
+    for (const oma of omas) {
+        const cl = clotheslines[oma.clotheslineIdx];
+        if (!cl) continue;
+
+        // Oma activates when cat is on her clothesline
+        if (cl.active && !oma.doorOpen) {
+            oma.doorOpen = true;
+            oma.yellTimer = 90;
+            sfxOmaYell();
+            showMeme('OMA ALARM!! 👵💢', oma.x, oma.y - 80, '#FF0000');
+        }
+
+        if (oma.doorOpen && cl.active) {
+            oma.active = true;
+            oma.sprayTimer = 1; // keep spraying while cat is on line
+            oma.yellTimer = Math.max(oma.yellTimer, 1);
+
+            // Water spray damages cat periodically (every ~45 frames)
+            if (frame % 45 === 0) {
+                const cl2 = clotheslines[oma.clotheslineIdx];
+                const midX = (cl2.x1 + cl2.x2) * 0.5;
+                if (Math.abs(cat.x - midX) < (cl2.x2 - cl2.x1) * 0.6) {
+                    takeDamage();
+                    cat.vy = JUMP_FORCE * 0.6; // knocked off
+                    cat._onClothesline = false;
+                    cl.active = false;
+                    sfxOmaSpray();
+                    showMeme('NASS! 💦😿', cat.x, cat.y - 30, '#1E90FF');
+                    spawnParticles(cat.x, cat.y, '#1E90FF', 10, 4);
+                }
+            }
+        } else if (oma.doorOpen && !cl.active) {
+            // Cat left the clothesline — oma calms down slowly
+            oma.sprayTimer = 0;
+            oma.yellTimer--;
+            if (oma.yellTimer <= -60) {
+                oma.doorOpen = false;
+                oma.active = false;
+            }
+        }
+    }
+
     // Screen shake decay
     if (shakeTimer > 0) shakeTimer--;
 
@@ -2085,6 +2387,8 @@ function update() {
         combo >= 2 ? '🔥 x' + combo + (speedBoost > 0 ? ' 🔴SPEED!' : '')
         : (speedBoost > 0 ? '🔴 SPEED!' : '');
     document.getElementById('bomb-display').textContent = '💣 x' + cat.bombCount;
+    const elapsed = Date.now() - levelStartTime;
+    document.getElementById('time-display').textContent = '⏱ ' + formatTime(elapsed);
 }
 
 // ============= RENDER =============
@@ -2166,6 +2470,10 @@ function render() {
     for (const bm of bombs) { if (bm.alive) drawBombProjectile(bm.x, bm.y, frame); }
     // Bomb pickups
     for (const bp of bombPickups) { if (bp.alive) drawBombPickup(bp.x, bp.y, frame); }
+    // Clotheslines (behind entities)
+    for (const cl of clotheslines) drawClothesline(cl, frame);
+    // Omas (behind clotheslines visually)
+    for (const oma of omas) { drawOma(oma, frame); drawWaterSpray(oma, frame); }
     // Dogs
     for (const dog of dogs) { if (dog.alive && dog.activated) drawDog(dog, frame); }
     // Eagles
