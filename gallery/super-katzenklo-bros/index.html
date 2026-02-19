@@ -234,6 +234,8 @@ function sfxDogDeath() {
     playSound(200, 0.3, 'sawtooth', 0.2);
     [300,400,500,700,900].forEach((f,i) => setTimeout(() => playSound(f, 0.15, 'sine', 0.12), i*80));
 }
+function sfxEagleScreech() { playSound(800, 0.3, 'sawtooth', 0.15); setTimeout(() => playSound(1200, 0.25, 'sawtooth', 0.12), 80); setTimeout(() => playSound(600, 0.2, 'sawtooth', 0.1), 180); }
+function sfxEagleSwoopWarning() { playSound(400, 0.1, 'sine', 0.2); setTimeout(() => playSound(500, 0.1, 'sine', 0.15), 100); setTimeout(() => playSound(600, 0.1, 'sine', 0.1), 200); }
 
 // ============= MUSIC =============
 const musicTracks = [
@@ -290,7 +292,16 @@ let celebrateTimer = 0;
 let bombs = []; // thrown bomb projectiles
 let dogs = []; // giant dog enemies
 let bombPickups = []; // bomb ammo pickups in world
+let eagles = []; // eagle enemies that swoop from above
 let shakeTimer = 0, shakeIntensity = 0;
+
+// Dog breed definitions
+const DOG_BREEDS = {
+    chihuahua: { w: 45, h: 36, speed: 3.8, color: '#D2A060', headCol: '#E0B878', snoutCol: '#F0D8B0', earType: 'pointy', barkText: 'YAP!', barkFreq: 250, score: 10, hp: 1 },
+    terrier:   { w: 70, h: 55, speed: 2.8, color: '#8B5E3C', headCol: '#A0704B', snoutCol: '#C4956A', earType: 'floppy', barkText: 'WOOF!', barkFreq: 150, score: 15, hp: 1 },
+    rottweiler:{ w: 120, h: 95, speed: 2.0, color: '#2A1A0A', headCol: '#3A2A1A', snoutCol: '#8B6540', earType: 'floppy', barkText: 'RRRUFF!', barkFreq: 80, score: 25, hp: 2 },
+    megadog:   { w: 400, h: 320, speed: 1.4, color: '#4A0A0A', headCol: '#5A1A1A', snoutCol: '#8B4040', earType: 'floppy', barkText: 'BWOOOOOF!!!', barkFreq: 50, score: 100, hp: 5 },
+};
 function getGroundY() { return vh() * GROUND_Y_RATIO; }
 
 // Show highscore on title
@@ -306,7 +317,7 @@ function generateWorld() {
     platforms = []; fishes = []; cucumbers = []; boxes = []; lasers = []; signs = [];
     qBlocks = []; healthPickups = []; oneUps = []; powerupItems = []; projectiles = [];
 
-    bombs = []; dogs = []; bombPickups = [];
+    bombs = []; dogs = []; bombPickups = []; eagles = [];
 
     const lvl = currentLevel;
     let px = 300;
@@ -381,15 +392,45 @@ function generateWorld() {
             bombPickups.push({ x: px + pw * 0.5, y: py - 22, alive: true });
         }
 
-        // Giant dog spawn (every ~35 platforms from platform 20+)
-        if (i > 20 && i % 35 === 0) {
+        // Dog spawns — varied breeds
+        if (i > 10 && i % 12 === 0) {
+            // Pick breed based on level & position
+            let breed;
+            if (i > 60 && i % 60 === 0 && currentLevelIdx >= 2) {
+                breed = 'megadog'; // MEGA DOG — only in later levels, very rare
+            } else if (i > 30 && Math.random() < 0.3) {
+                breed = 'rottweiler';
+            } else if (Math.random() < 0.5) {
+                breed = 'chihuahua';
+            } else {
+                breed = 'terrier';
+            }
+            const bd = DOG_BREEDS[breed];
             dogs.push({
-                x: px + 300, startY: -150,
-                y: -150, vx: 0, vy: 0,
-                w: 100, h: 80,
-                alive: true, grounded: false,
+                x: px + 300, startY: -bd.h * 2,
+                y: -bd.h * 2, vx: 0, vy: 0,
+                w: bd.w, h: bd.h,
+                alive: true, grounded: false, landed: false,
                 activated: false, triggerX: px - 200,
-                barkTimer: 0,
+                barkTimer: 0, breed: breed, hp: bd.hp,
+            });
+        }
+
+        // Eagle spawns (every ~25 platforms from platform 15+)
+        if (i > 15 && i % 25 === 5) {
+            eagles.push({
+                x: px, startX: px,
+                y: 0, // will be set relative to camera when activated
+                alive: true, activated: false,
+                triggerX: px - vw() * 0.5,
+                phase: 'flying', // 'flying' → 'warning' → 'swooping' → 'recovering'
+                flyDir: Math.random() > 0.5 ? 1 : -1,
+                flySpeed: 2 + Math.random() * 1.5,
+                swoopTargetX: 0, swoopTargetY: 0,
+                swoopTimer: 0, warningTimer: 0,
+                flyTimer: 0, recoverTimer: 0,
+                swoopCooldown: 0,
+                wingPhase: 0,
             });
         }
 
@@ -456,7 +497,7 @@ function reset() {
     score = 0; lives = 3; combo = 0; comboTimer = 0; speedBoost = 0;
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
-    bombs = []; dogs = []; bombPickups = [];
+    bombs = []; dogs = []; bombPickups = []; eagles = [];
     shakeTimer = 0; shakeIntensity = 0;
     deathPos = null; deathMeme = '';
     generateWorld();
@@ -892,58 +933,85 @@ function drawBombPickup(x, y, fr) {
 function drawDog(dog, fr) {
     const x = dog.x, y = dog.y, w = dog.w, h = dog.h;
     const dir = dog.vx >= 0 ? 1 : -1;
+    const bd = DOG_BREEDS[dog.breed] || DOG_BREEDS.terrier;
     ctx.save();
     ctx.translate(x, y);
     if (dir < 0) ctx.scale(-1, 1);
 
     // Shadow underneath
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath(); ctx.ellipse(0, h*0.45, w*0.4, 8, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, h*0.45, w*0.4, Math.min(8, h*0.03), 0, 0, Math.PI*2); ctx.fill();
 
     // Body
-    ctx.fillStyle = '#8B5E3C';
+    ctx.fillStyle = bd.color;
     ctx.beginPath(); ctx.ellipse(0, 0, w*0.45, h*0.35, 0, 0, Math.PI*2); ctx.fill();
+    // Rottweiler/megadog tan markings
+    if (dog.breed === 'rottweiler' || dog.breed === 'megadog') {
+        ctx.fillStyle = '#8B4513';
+        ctx.beginPath(); ctx.ellipse(0, h*0.08, w*0.35, h*0.18, 0, 0, Math.PI*2); ctx.fill();
+    }
 
     // Head
-    ctx.fillStyle = '#A0704B';
+    ctx.fillStyle = bd.headCol;
     ctx.beginPath(); ctx.arc(w*0.35, -h*0.15, h*0.32, 0, Math.PI*2); ctx.fill();
+    // Rottweiler tan cheeks
+    if (dog.breed === 'rottweiler' || dog.breed === 'megadog') {
+        ctx.fillStyle = '#A0602A';
+        ctx.beginPath(); ctx.arc(w*0.28, -h*0.08, h*0.08, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(w*0.44, -h*0.08, h*0.08, 0, Math.PI*2); ctx.fill();
+    }
 
     // Snout
-    ctx.fillStyle = '#C4956A';
+    ctx.fillStyle = bd.snoutCol;
     ctx.beginPath(); ctx.ellipse(w*0.52, -h*0.05, h*0.18, h*0.12, 0, 0, Math.PI*2); ctx.fill();
 
     // Nose
     ctx.fillStyle = '#222';
     ctx.beginPath(); ctx.arc(w*0.58, -h*0.08, h*0.06, 0, Math.PI*2); ctx.fill();
 
-    // Mouth (open, showing teeth)
+    // Mouth
     ctx.fillStyle = '#600';
     ctx.beginPath(); ctx.ellipse(w*0.52, h*0.03, h*0.14, h*0.08, 0, 0, Math.PI); ctx.fill();
     // Teeth
     ctx.fillStyle = '#FFF';
-    for (let t = 0; t < 4; t++) {
-        ctx.fillRect(w*0.42 + t*h*0.06, -h*0.01, h*0.04, h*0.06);
+    const teethCount = dog.breed === 'megadog' ? 8 : dog.breed === 'rottweiler' ? 6 : 4;
+    for (let t = 0; t < teethCount; t++) {
+        ctx.fillRect(w*0.42 + t*h*0.06/teethCount*4, -h*0.01, h*0.04, h*0.06);
     }
 
-    // Eyes (angry)
+    // Eyes (angry — megadog has GLOWING red eyes)
     ctx.fillStyle = '#FFF';
     ctx.beginPath(); ctx.arc(w*0.28, -h*0.25, h*0.1, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(w*0.42, -h*0.25, h*0.1, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#C00';
+    ctx.fillStyle = dog.breed === 'megadog' ? '#FF0000' : '#C00';
     ctx.beginPath(); ctx.arc(w*0.30, -h*0.25, h*0.05, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(w*0.44, -h*0.25, h*0.05, 0, Math.PI*2); ctx.fill();
+    // Megadog glowing eyes
+    if (dog.breed === 'megadog') {
+        ctx.shadowBlur = 20; ctx.shadowColor = '#FF0000';
+        ctx.beginPath(); ctx.arc(w*0.30, -h*0.25, h*0.03, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(w*0.44, -h*0.25, h*0.03, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
     // Angry brows
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 3;
+    ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(3, h*0.02);
     ctx.beginPath(); ctx.moveTo(w*0.20, -h*0.35); ctx.lineTo(w*0.32, -h*0.30); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(w*0.52, -h*0.30); ctx.lineTo(w*0.40, -h*0.35); ctx.stroke();
 
-    // Ears (floppy)
-    ctx.fillStyle = '#7A5030';
-    ctx.beginPath(); ctx.ellipse(w*0.18, -h*0.20, h*0.08, h*0.18, -0.4, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(w*0.50, -h*0.20, h*0.08, h*0.18, 0.4, 0, Math.PI*2); ctx.fill();
+    // Ears
+    const earCol = dog.breed === 'chihuahua' ? '#C89050' : (dog.breed === 'megadog' ? '#3A0808' : '#7A5030');
+    ctx.fillStyle = earCol;
+    if (bd.earType === 'pointy') {
+        // Chihuahua pointy ears
+        ctx.beginPath(); ctx.moveTo(w*0.18, -h*0.32); ctx.lineTo(w*0.10, -h*0.55); ctx.lineTo(w*0.28, -h*0.35); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(w*0.48, -h*0.32); ctx.lineTo(w*0.55, -h*0.55); ctx.lineTo(w*0.38, -h*0.35); ctx.fill();
+    } else {
+        ctx.beginPath(); ctx.ellipse(w*0.18, -h*0.20, h*0.08, h*0.18, -0.4, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(w*0.50, -h*0.20, h*0.08, h*0.18, 0.4, 0, Math.PI*2); ctx.fill();
+    }
 
     // Legs (animated)
-    ctx.fillStyle = '#8B5E3C';
+    ctx.fillStyle = bd.color;
     const la = Math.sin(fr * 0.15) * h * 0.1;
     ctx.fillRect(-w*0.30, h*0.15, w*0.12, h*0.30+la);
     ctx.fillRect(-w*0.10, h*0.15, w*0.12, h*0.30-la);
@@ -951,19 +1019,140 @@ function drawDog(dog, fr) {
     ctx.fillRect(w*0.25, h*0.15, w*0.12, h*0.30-la);
 
     // Tail
-    ctx.strokeStyle = '#8B5E3C'; ctx.lineWidth = h*0.06; ctx.lineCap = 'round';
+    ctx.strokeStyle = bd.color; ctx.lineWidth = h*0.06; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-w*0.40, -h*0.05);
     ctx.quadraticCurveTo(-w*0.55, -h*0.3+Math.sin(fr*0.1)*h*0.1, -w*0.45, -h*0.4);
     ctx.stroke();
 
+    // Megadog: spiked collar
+    if (dog.breed === 'megadog') {
+        ctx.fillStyle = '#444';
+        ctx.fillRect(w*0.08, -h*0.04, w*0.18, h*0.06);
+        ctx.fillStyle = '#CCC';
+        for (let s = 0; s < 4; s++) ctx.fillRect(w*0.10 + s*w*0.04, -h*0.06, w*0.02, h*0.03);
+    }
+    // Rottweiler: collar
+    if (dog.breed === 'rottweiler') {
+        ctx.fillStyle = '#C00';
+        ctx.fillRect(w*0.12, -h*0.02, w*0.14, h*0.04);
+    }
+
     ctx.restore();
 
-    // Bark indicator
-    if (dog.barkTimer > 0) {
-        ctx.font = 'bold 16px Comic Sans MS'; ctx.textAlign = 'center';
-        ctx.fillStyle = '#FF4444'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeText('WOOF!', x + dir * 40, y - h*0.5 - 10);
-        ctx.fillText('WOOF!', x + dir * 40, y - h*0.5 - 10);
+    // Bark text
+    if (dog.barkTimer > 0 && dog.barkTimer < 30) {
+        const fontSize = dog.breed === 'megadog' ? 40 : dog.breed === 'rottweiler' ? 22 : dog.breed === 'chihuahua' ? 11 : 16;
+        ctx.font = 'bold ' + fontSize + 'px Comic Sans MS'; ctx.textAlign = 'center';
+        ctx.fillStyle = dog.breed === 'megadog' ? '#FF0000' : '#FF4444';
+        ctx.strokeStyle = '#000'; ctx.lineWidth = dog.breed === 'megadog' ? 4 : 2;
+        ctx.strokeText(bd.barkText, x + dir * w * 0.4, y - h*0.5 - 10);
+        ctx.fillText(bd.barkText, x + dir * w * 0.4, y - h*0.5 - 10);
+    }
+
+    // Megadog: HP bar
+    if (dog.breed === 'megadog' || (dog.breed === 'rottweiler' && dog.hp < bd.hp)) {
+        const barW = w * 0.6;
+        const barH = 6;
+        ctx.fillStyle = '#600'; ctx.fillRect(x - barW/2, y - h*0.55, barW, barH);
+        ctx.fillStyle = '#0F0'; ctx.fillRect(x - barW/2, y - h*0.55, barW * (dog.hp / bd.hp), barH);
+    }
+}
+
+// ============= EAGLE DRAWING =============
+function drawEagle(eagle, fr) {
+    const x = eagle.x, y = eagle.y;
+    const dir = eagle.flyDir;
+    const wingAng = Math.sin(fr * 0.12 + eagle.wingPhase) * 0.5;
+    const swooping = eagle.phase === 'swooping';
+    const span = 80; // wingspan
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir < 0) ctx.scale(-1, 1);
+
+    // Body
+    ctx.fillStyle = '#3A2010';
+    ctx.beginPath(); ctx.ellipse(0, 0, 20, 12, 0, 0, Math.PI*2); ctx.fill();
+
+    // Head
+    ctx.fillStyle = '#FFF8E0';
+    ctx.beginPath(); ctx.arc(22, -6, 10, 0, Math.PI*2); ctx.fill();
+
+    // Beak
+    ctx.fillStyle = '#FF8C00';
+    ctx.beginPath(); ctx.moveTo(32, -6); ctx.lineTo(40, -4); ctx.lineTo(32, -2); ctx.closePath(); ctx.fill();
+
+    // Eye
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(26, -8, 3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#FFD700'; // angry yellow iris
+    ctx.beginPath(); ctx.arc(26, -8, 2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(26.5, -8, 1, 0, Math.PI*2); ctx.fill();
+
+    // Wings
+    ctx.save();
+    ctx.fillStyle = '#4A2810';
+    // Left wing
+    ctx.save();
+    ctx.translate(-8, -4);
+    ctx.rotate(-wingAng - (swooping ? 0.8 : 0));
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-span*0.6, -span*0.3);
+    ctx.lineTo(-span*0.5, span*0.05); ctx.closePath(); ctx.fill();
+    // Wing feathers
+    ctx.fillStyle = '#2A1808';
+    ctx.beginPath(); ctx.moveTo(-span*0.3, -span*0.15);
+    ctx.lineTo(-span*0.7, -span*0.35); ctx.lineTo(-span*0.55, -span*0.05); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // Right wing
+    ctx.save();
+    ctx.translate(-8, 4);
+    ctx.rotate(wingAng + (swooping ? 0.8 : 0));
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-span*0.6, span*0.3);
+    ctx.lineTo(-span*0.5, -span*0.05); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2A1808';
+    ctx.beginPath(); ctx.moveTo(-span*0.3, span*0.15);
+    ctx.lineTo(-span*0.7, span*0.35); ctx.lineTo(-span*0.55, span*0.05); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+
+    // Talons (visible during swoop or warning)
+    if (swooping || eagle.phase === 'warning') {
+        ctx.fillStyle = '#FF8C00';
+        ctx.lineWidth = 2; ctx.strokeStyle = '#604000';
+        // Left talon
+        for (let t = 0; t < 3; t++) {
+            ctx.beginPath();
+            ctx.moveTo(-6 + t*6, 14);
+            ctx.lineTo(-8 + t*6, 28);
+            ctx.lineTo(-4 + t*6, 22);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        }
+        // Right talon
+        for (let t = 0; t < 3; t++) {
+            ctx.beginPath();
+            ctx.moveTo(8 + t*6, 14);
+            ctx.lineTo(6 + t*6, 28);
+            ctx.lineTo(10 + t*6, 22);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        }
+    }
+
+    // Tail feathers
+    ctx.fillStyle = '#3A2010';
+    ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(-35, -6); ctx.lineTo(-35, 6); ctx.closePath(); ctx.fill();
+
+    ctx.restore();
+
+    // Warning indicator (red shadow on ground below eagle during warning phase)
+    if (eagle.phase === 'warning') {
+        const warningAlpha = 0.2 + Math.sin(fr * 0.3) * 0.15;
+        ctx.fillStyle = 'rgba(255,0,0,' + warningAlpha + ')';
+        ctx.beginPath(); ctx.ellipse(eagle.swoopTargetX, groundY - 5, 40, 8, 0, 0, Math.PI*2); ctx.fill();
+        // "!" warning
+        ctx.font = 'bold 24px Comic Sans MS'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#FF0000'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.strokeText('⚠️', eagle.swoopTargetX, groundY - 25);
+        ctx.fillText('⚠️', eagle.swoopTargetX, groundY - 25);
     }
 }
 
@@ -1107,7 +1296,7 @@ function completeLevel() {
     camera = { x: 0, y: groundY - vh() * 0.88 };
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
-    bombs = []; dogs = []; bombPickups = [];
+    bombs = []; dogs = []; bombPickups = []; eagles = [];
     showTransition();
 }
 
@@ -1149,7 +1338,8 @@ function loseLife() {
     camera = { x: 0, y: groundY - vh() * 0.88 };
     // Reset enemies to alive
     for (const c of cucumbers) { c.alive = true; }
-    for (const d of dogs) { d.alive = true; d.activated = false; d.landed = false; d.y = d.startY || -200; d.vy = 0; }
+    for (const d of dogs) { d.alive = true; d.activated = false; d.landed = false; d.y = d.startY || -200; d.vy = 0; d.hp = DOG_BREEDS[d.breed].hp; }
+    for (const e of eagles) { e.alive = true; e.activated = false; e.phase = 'flying'; e.swoopCooldown = 0; }
     bombs = [];
     sfxDeath();
     showMeme("Leben verloren! 🐱 x" + lives, 150, groundY - 60, '#FF4444');
@@ -1509,6 +1699,16 @@ function update() {
                 showMeme("🦠 ERLEDIGT! 🥒", c.x, c.y - 30, '#00FF00');
             }
         }
+        // Eagle kill by projectile
+        for (const eagle of eagles) {
+            if (!eagle.alive || !proj.alive || !eagle.activated) continue;
+            if (Math.abs(proj.x - eagle.x) < 30 && Math.abs(proj.y - eagle.y) < 30) {
+                eagle.alive = false; proj.alive = false; score += 30;
+                sfxEagleScreech();
+                spawnParticles(eagle.x, eagle.y, '#4A2810', 15, 5);
+                showMeme("🦠 ADLER DOWN! 🦅💥", eagle.x, eagle.y - 30, '#FFD700');
+            }
+        }
     }
     projectiles = projectiles.filter(p => p.alive);
 
@@ -1597,13 +1797,44 @@ function update() {
                     spawnParticles(c.x, c.y, '#228B22', 6, 3);
                 }
             }
-            // Kill dogs in radius
+            // Damage dogs in radius (HP system)
             for (const dog of dogs) {
                 if (dog.alive && dog.activated && Math.abs(dog.x - ex) < killRadius) {
-                    dog.alive = false; score += 20;
-                    sfxDogDeath();
-                    spawnParticles(dog.x, dog.y, '#8B5E3C', 30, 8);
-                    showMeme('HUND WEG! 🐕💥🎉', dog.x, dog.y - 60, '#FFD700');
+                    const dmg = megaExplode ? 3 : 1;
+                    dog.hp -= dmg;
+                    if (dog.hp <= 0) {
+                        dog.alive = false;
+                        const bd = DOG_BREEDS[dog.breed] || DOG_BREEDS.terrier;
+                        score += bd.score;
+                        sfxDogDeath();
+                        const pCount = dog.breed === 'megadog' ? 60 : 30;
+                        spawnParticles(dog.x, dog.y, bd.color, pCount, 8);
+                        const msg = dog.breed === 'megadog' ? 'MEGA HUND BESIEGT!! 🐕‍🦺💥🎉🎉🎉'
+                            : dog.breed === 'chihuahua' ? 'YAP YAP BYE! 🐕💥'
+                            : 'HUND WEG! 🐕💥🎉';
+                        showMeme(msg, dog.x, dog.y - 60, '#FFD700');
+                        if (dog.breed === 'megadog') {
+                            shakeTimer = 50; shakeIntensity = 30;
+                            // Mega explosion celebration
+                            for (let ce = 0; ce < 10; ce++) {
+                                setTimeout(() => spawnParticles(
+                                    dog.x + (Math.random()-0.5)*200, dog.y + (Math.random()-0.5)*100,
+                                    ['#FF0000','#FFD700','#00FF00','#FF00FF','#00FFFF'][ce%5], 10, 6), ce * 100);
+                            }
+                        }
+                    } else {
+                        showMeme('💥 -' + dmg + ' HP!', dog.x, dog.y - 50, '#FF8800');
+                        spawnParticles(dog.x, dog.y, '#FF4400', 10, 4);
+                    }
+                }
+            }
+            // Kill eagles in radius
+            for (const eagle of eagles) {
+                if (eagle.alive && eagle.activated && Math.abs(eagle.x - ex) < killRadius && Math.abs(eagle.y - (ey - 50)) < killRadius * 0.5) {
+                    eagle.alive = false; score += 30;
+                    sfxEagleScreech();
+                    spawnParticles(eagle.x, eagle.y, '#4A2810', 20, 6);
+                    showMeme('ADLER ERLEDIGT! 🦅💥', eagle.x, eagle.y - 30, '#FFD700');
                 }
             }
         }
@@ -1621,16 +1852,22 @@ function update() {
         }
     }
 
-    // === GIANT DOG AI ===
+    // === DOG AI (all breeds) ===
     for (const dog of dogs) {
         if (!dog.alive) continue;
+        const bd = DOG_BREEDS[dog.breed] || DOG_BREEDS.terrier;
 
         // Activate when cat gets close
         if (!dog.activated && cat.x >= dog.triggerX) {
             dog.activated = true;
-            dog.y = camera.y - 50;
-            sfxDogBark();
-            showMeme('🐕 WOOF WOOF! 🐕', dog.x, camera.y + 30, '#FF4444');
+            dog.y = camera.y - dog.h;
+            const barkF = bd.barkFreq;
+            playSound(barkF, 0.2, 'sawtooth', 0.18);
+            setTimeout(() => playSound(barkF * 0.8, 0.25, 'sawtooth', 0.15), 150);
+            const intro = dog.breed === 'megadog' ? '🐕‍🦺 MEGA HUND!!! 🐕‍🦺'
+                : dog.breed === 'chihuahua' ? '🐕 YAP YAP! 🐕'
+                : dog.breed === 'rottweiler' ? '🐕 GRRRR! 🐕' : '🐕 WOOF WOOF! 🐕';
+            showMeme(intro, dog.x, camera.y + 30, dog.breed === 'megadog' ? '#FF0000' : '#FF4444');
         }
         if (!dog.activated) continue;
 
@@ -1642,14 +1879,19 @@ function update() {
                 dog.y = groundY - dog.h * 0.45;
                 dog.vy = 0;
                 dog.grounded = true;
-                shakeTimer = 15; shakeIntensity = 8;
-                sfxDogBark();
+                dog.landed = true;
+                // Bigger dogs = bigger shake
+                const shk = dog.breed === 'megadog' ? 40 : dog.breed === 'rottweiler' ? 20 : 10;
+                const shi = dog.breed === 'megadog' ? 25 : dog.breed === 'rottweiler' ? 12 : 6;
+                shakeTimer = Math.max(shakeTimer, shk);
+                shakeIntensity = Math.max(shakeIntensity, shi);
+                playSound(bd.barkFreq, 0.25, 'sawtooth', 0.2);
             }
         }
 
-        // Chase cat (slow, clumsy)
+        // Chase cat
         if (dog.grounded) {
-            const chaseSpeed = 2.2;
+            const chaseSpeed = bd.speed;
             if (cat.x < dog.x - 20) dog.vx = -chaseSpeed;
             else if (cat.x > dog.x + 20) dog.vx = chaseSpeed;
             else dog.vx = 0;
@@ -1658,20 +1900,114 @@ function update() {
             // Bark periodically
             dog.barkTimer--;
             if (dog.barkTimer <= 0) {
-                dog.barkTimer = 90 + Math.floor(Math.random() * 60);
-                if (Math.abs(dog.x - cat.x) < vw()) sfxDogBark();
+                dog.barkTimer = 60 + Math.floor(Math.random() * 80);
+                if (Math.abs(dog.x - cat.x) < vw()) {
+                    playSound(bd.barkFreq, 0.2, 'sawtooth', 0.18);
+                    setTimeout(() => playSound(bd.barkFreq * 0.8, 0.25, 'sawtooth', 0.15), 150);
+                }
             }
         }
 
-        // Collision with cat (cat takes damage)
+        // Collision with cat
         if (dog.grounded && cat.invincibleTimer <= 0) {
             const dx = cat.x - dog.x;
             const dy = cat.y - dog.y;
             if (Math.abs(dx) < dog.w * 0.4 + cat.size * 0.3 &&
                 Math.abs(dy) < dog.h * 0.4 + cat.size * 0.3) {
                 takeDamage();
-                cat.vx = (dx > 0 ? 1 : -1) * 10;
+                const knockback = dog.breed === 'megadog' ? 15 : 10;
+                cat.vx = (dx > 0 ? 1 : -1) * knockback;
                 cat.vy = JUMP_FORCE * 0.7;
+            }
+        }
+    }
+
+    // === EAGLE AI ===
+    for (const eagle of eagles) {
+        if (!eagle.alive) continue;
+
+        // Activate when cat approaches
+        if (!eagle.activated && cat.x >= eagle.triggerX) {
+            eagle.activated = true;
+            eagle.y = camera.y + 20; // just above top of screen
+            eagle.x = cat.x + eagle.flyDir * vw() * 0.3;
+            eagle.phase = 'flying';
+            eagle.flyTimer = 120 + Math.floor(Math.random() * 120); // fly 2-4 sec before first swoop
+            sfxEagleScreech();
+            showMeme('🦅 ADLER! 🦅', eagle.x, camera.y + 50, '#FFD700');
+        }
+        if (!eagle.activated) continue;
+
+        eagle.wingPhase += 0.1;
+
+        if (eagle.phase === 'flying') {
+            // Fly horizontally across top of screen, visible only partially (claws peeking)
+            eagle.x += eagle.flyDir * eagle.flySpeed;
+            eagle.y = camera.y + 15; // mostly off-screen, just claws visible
+            eagle.flyTimer--;
+
+            // Bounce off screen edges
+            if (eagle.x < camera.x - 20) eagle.flyDir = 1;
+            else if (eagle.x > camera.x + vw() + 20) eagle.flyDir = -1;
+
+            // Ready to swoop?
+            if (eagle.flyTimer <= 0 && eagle.swoopCooldown <= 0) {
+                eagle.phase = 'warning';
+                eagle.swoopTargetX = cat.x; // lock target position
+                eagle.swoopTargetY = cat.y;
+                eagle.warningTimer = 60; // 1 second warning
+                eagle.x = eagle.swoopTargetX; // move above target
+                sfxEagleSwoopWarning();
+            }
+            if (eagle.swoopCooldown > 0) eagle.swoopCooldown--;
+
+        } else if (eagle.phase === 'warning') {
+            // Hover above target, showing warning shadow on ground
+            eagle.y = camera.y + 10;
+            eagle.warningTimer--;
+            if (eagle.warningTimer <= 0) {
+                eagle.phase = 'swooping';
+                eagle.swoopTimer = 0;
+                sfxEagleScreech();
+            }
+
+        } else if (eagle.phase === 'swooping') {
+            // DIVE DOWN fast!
+            eagle.swoopTimer++;
+            const swoopSpeed = 8;
+            eagle.y += swoopSpeed;
+
+            // Check if reached ground level
+            if (eagle.y >= groundY - 20) {
+                eagle.phase = 'recovering';
+                eagle.recoverTimer = 40;
+                eagle.y = groundY - 20;
+
+                // Check if cat is hit (not under a platform = safe)
+                const catUnderPlatform = platforms.some(p =>
+                    cat.x > p.x - 10 && cat.x < p.x + p.w + 10 &&
+                    cat.y > p.y && cat.y < p.y + 200
+                );
+                const hitDist = Math.abs(cat.x - eagle.swoopTargetX);
+
+                if (hitDist < 35 && !catUnderPlatform && cat.invincibleTimer <= 0) {
+                    takeDamage();
+                    cat.vy = JUMP_FORCE * 0.5;
+                    showMeme('ADLER ERWISCHT! 🦅💥', cat.x, cat.y - 40, '#FF0000');
+                } else if (hitDist < 35 && catUnderPlatform) {
+                    showMeme('VERSTECKT! 😸', cat.x, cat.y - 30, '#00FF00');
+                }
+            }
+
+        } else if (eagle.phase === 'recovering') {
+            // Fly back up
+            eagle.recoverTimer--;
+            eagle.y -= 4;
+            if (eagle.recoverTimer <= 0) {
+                eagle.phase = 'flying';
+                eagle.flyTimer = 90 + Math.floor(Math.random() * 90);
+                eagle.swoopCooldown = 30;
+                eagle.flyDir = Math.random() > 0.5 ? 1 : -1;
             }
         }
     }
@@ -1832,6 +2168,8 @@ function render() {
     for (const bp of bombPickups) { if (bp.alive) drawBombPickup(bp.x, bp.y, frame); }
     // Dogs
     for (const dog of dogs) { if (dog.alive && dog.activated) drawDog(dog, frame); }
+    // Eagles
+    for (const eagle of eagles) { if (eagle.alive && eagle.activated) drawEagle(eagle, frame); }
     // Particles
     for (const p of particles) {
         ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
