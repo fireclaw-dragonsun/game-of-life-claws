@@ -165,7 +165,7 @@ const cam = { y:0 };
 const lava = { y:9999, spd:0, active:false };
 let lvlTimer = 0; // frames remaining
 let lvlTimerMax = 0;
-let plats=[], hazs=[], cols=[], enemies=[], caves=[], npcs=[], parts=[];
+let plats=[], hazs=[], cols=[], enemies=[], caves=[], npcs=[], goats=[], dogs=[], alcoves=[], parts=[];
 let shake={x:0,y:0,i:0};
 let hiScore=0, bestW=1, bestL=1;
 let showHelp = false;
@@ -313,6 +313,24 @@ function sfx(type) {
       g.gain.setValueAtTime(.2,t); g.gain.linearRampToValueAtTime(.15,t+1);
       g.gain.exponentialRampToValueAtTime(.001,t+2);
       o.start(t); o.stop(t+2); break;
+    case 'goat':
+      o.type='square'; o.frequency.setValueAtTime(500,t); o.frequency.linearRampToValueAtTime(700,t+.05);
+      o.frequency.linearRampToValueAtTime(400,t+.12);
+      g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.15);
+      o.start(t); o.stop(t+.15); break;
+    case 'bark': {
+      [300,450,300].forEach((f,i) => {
+        const oo=actx.createOscillator(), gg=actx.createGain();
+        oo.type='square'; oo.frequency.value=f;
+        gg.gain.setValueAtTime(.1,t+i*.08); gg.gain.exponentialRampToValueAtTime(.001,t+i*.08+.06);
+        oo.connect(gg); gg.connect(actx.destination);
+        oo.start(t+i*.08); oo.stop(t+i*.08+.06);
+      }); break; }
+    case 'bouldercrash':
+      o.type='sawtooth'; o.frequency.setValueAtTime(50,t); o.frequency.linearRampToValueAtTime(30,t+.5);
+      g.gain.setValueAtTime(.25,t); g.gain.linearRampToValueAtTime(.15,t+.3);
+      g.gain.exponentialRampToValueAtTime(.001,t+.8);
+      o.start(t); o.stop(t+.8); break;
     default:
       o.type='sine'; o.frequency.value=440;
       g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.1);
@@ -387,7 +405,7 @@ function genLevel(w, l) {
   const timerSec = Math.max(50, 130 - diff * 2.2);
   const lavaSpd = 0.6 + d * 0.02;
 
-  const ps = [], hs = [], cs = [], en = [], cv = [], nc = [];
+  const ps = [], hs = [], cs = [], en = [], cv = [], nc = [], gt = [], dg = [], al = [];
 
   // Start platform
   const startY = height - 60;
@@ -481,6 +499,54 @@ function genLevel(w, l) {
       nextNpcY = curY - 400 - rng() * 300;
     }
 
+    // Mountain goats (from world 2+, climb walls and jump to platforms)
+    if (w >= 2 && rng() < 0.06 + d * 0.004) {
+      const side = rng() < 0.5 ? 'left' : 'right';
+      gt.push({
+        x: side === 'left' ? PLAY_L - 6 : PLAY_R + 6,
+        y: curY - 40 - rng() * 60, side,
+        vy: -0.3 - rng() * 0.5, // climbing up
+        onWall: true, jumpT: 120 + Math.floor(rng() * 120),
+        platY: curY, platX: nx, platW: pw,
+        dir: side === 'left' ? 1 : -1, vx: 0,
+        dead: false, w: 12, h: 12, anim: rng() * Math.PI * 2
+      });
+    }
+
+    // Stray dogs (from world 1-3+, run across platforms barking)
+    if (diff >= 3 && type === 'solid' && pw > 60 && !platTaken && rng() < 0.04 + d * 0.003) {
+      dg.push({
+        x: rng() < 0.5 ? PLAY_L - 20 : PLAY_R + 20,
+        y: curY - 14, platY: curY,
+        vx: 0, dir: 0, active: false,
+        trigY: curY - 60 - rng() * 40,
+        dead: false, w: 16, h: 12, bark: 0, runSpd: 2 + rng() * 1.5
+      });
+    }
+
+    // Mega boulders (from world 3+, massive rocks that fill the channel)
+    if (w >= 3 && rng() < 0.03 + d * 0.003) {
+      const bsize = 40 + rng() * 30; // 40-70 pixels wide = huge
+      hs.push({
+        type: 'boulder', x: PLAY_L + 10 + rng() * (PLAY_R - PLAY_L - bsize - 20),
+        trigY: curY - 100 - rng() * 80, bw: bsize, bh: bsize * (0.7 + rng() * 0.3),
+        falling: false, fy: 0, fvy: 0, warn: 0, hit: false, rumble: 0
+      });
+    }
+
+    // Wall alcoves / overhangs (safe spots, from world 2+)
+    if (w >= 2 && rng() < 0.05 + w * 0.01) {
+      const alSide = rng() < 0.5 ? 'left' : 'right';
+      const alW = 28 + rng() * 14;
+      al.push({
+        x: alSide === 'left' ? PLAY_L - 2 : PLAY_R - alW + 2,
+        y: curY, w: alW, side: alSide
+      });
+      // Also add a solid platform at alcove position so player can stand there
+      ps.push({ x: alSide === 'left' ? PLAY_L - 2 : PLAY_R - alW + 2,
+        y: curY, w: alW, type: 'solid', act: false, t: 0, ox: 0 });
+    }
+
     prevPx = nx + pw/2;
   }
 
@@ -496,7 +562,7 @@ function genLevel(w, l) {
     lastP = ps[ps.length-1];
   }
 
-  return { height, timerSec, lavaSpd, plats:ps, hazs:hs, cols:cs, enemies:en, caves:cv, npcs:nc, goal };
+  return { height, timerSec, lavaSpd, plats:ps, hazs:hs, cols:cs, enemies:en, caves:cv, npcs:nc, goats:gt, dogs:dg, alcoves:al, goal };
 }
 
 // === LOAD LEVEL ===
@@ -504,6 +570,7 @@ function loadLevel() {
   lvl = genLevel(world, level);
   plats = lvl.plats; hazs = lvl.hazs; cols = lvl.cols;
   enemies = lvl.enemies; caves = lvl.caves; npcs = lvl.npcs;
+  goats = lvl.goats; dogs = lvl.dogs; alcoves = lvl.alcoves;
 
   const sp = plats[0];
   P.x = sp.x + sp.w/2 - P.w/2; P.y = sp.y - P.h;
@@ -801,6 +868,145 @@ function updateHazards() {
           hurtPlayer(false); h.active=false;
         }
       }
+    }
+    if (h.type === 'boulder') {
+      if (!h.falling && !h.hit && P.y < h.trigY+80 && P.y > h.trigY-250) {
+        if (!h.warn) { h.warn=1; sfx('rockwarn'); }
+        h.warn++;
+        if (h.warn > 60) { h.falling=true; h.fy=h.trigY-400; h.fvy=0; h.rumble=20; }
+      }
+      if (h.rumble>0) { h.rumble--; addShake(h.rumble*0.4); }
+      if (h.falling && !h.hit) {
+        h.fvy+=0.22; h.fy+=h.fvy;
+        let inAlcove = false;
+        for (const a of alcoves) {
+          if (P.x >= a.x-2 && P.x+P.w <= a.x+a.w+2 && Math.abs(P.y+P.h - a.y) < PLAT_H+6) { inAlcove=true; break; }
+        }
+        if (!P.inv && !P.dead && !inAlcove) {
+          const bCx=h.x+h.bw/2, bCy=h.fy+h.bh/2, pCx=P.x+P.w/2, pCy=P.y+P.h/2;
+          if (Math.abs(bCx-pCx)<(h.bw/2+P.w/2) && Math.abs(bCy-pCy)<(h.bh/2+P.h/2)) {
+            h.hit=true; hurtPlayer(true); sfx('bouldercrash'); addShake(18);
+            spawn(h.x+h.bw/2, h.fy+h.bh/2, 15, '#888', 4, 30);
+          }
+        }
+        if (h.fy > lvl.height+200) { h.hit=true; sfx('bouldercrash'); addShake(12); }
+      }
+    }
+  }
+}
+
+// === GOAT UPDATE ===
+function updateGoats() {
+  for (const g of goats) {
+    if (g.dead) continue;
+    g.anim += 0.08;
+    if (g.onWall) {
+      // Climb wall upward
+      g.y += g.vy;
+      g.jumpT--;
+      if (g.jumpT <= 0) {
+        // Jump toward nearest platform or player
+        g.onWall = false;
+        g.vx = g.dir * (2.5 + Math.random());
+        g.vy = -5 - Math.random()*2;
+        sfx('goat');
+      }
+      // Don't climb off screen
+      if (g.y < cam.y - 50) g.dead = true;
+    } else {
+      // In air / on platform
+      g.vy += GRAV * 0.9;
+      g.x += g.vx;
+      g.y += g.vy;
+      // Land on platforms
+      for (const p of plats) {
+        if (p.act && p.type==='crumble' && p.t>35) continue;
+        const px = p.x + (p.ox||0);
+        if (g.vy >= 0 && g.x+g.w > px && g.x < px+p.w &&
+            g.y+g.h >= p.y && g.y+g.h <= p.y + PLAT_H + g.vy + 3) {
+          g.y = p.y - g.h; g.vy = 0;
+          // Patrol on platform briefly then jump back to wall
+          g.vx = g.dir * 1.2;
+          if (g.x < PLAY_L+5 || g.x+g.w > PLAY_R-5) {
+            g.onWall = true; g.vy = -0.3-Math.random()*0.5;
+            g.x = g.x < VW/2 ? PLAY_L-6 : PLAY_R+6;
+            g.side = g.x < VW/2 ? 'left' : 'right';
+            g.dir = g.side==='left' ? 1 : -1;
+            g.jumpT = 80+Math.floor(Math.random()*80);
+          }
+          break;
+        }
+      }
+      // Hit wall → re-attach
+      if (g.x < PLAY_L) { g.onWall=true; g.x=PLAY_L-6; g.side='left'; g.dir=1; g.vy=-0.4; g.vx=0; g.jumpT=60+Math.floor(Math.random()*60); }
+      if (g.x+g.w > PLAY_R) { g.onWall=true; g.x=PLAY_R+6; g.side='right'; g.dir=-1; g.vy=-0.4; g.vx=0; g.jumpT=60+Math.floor(Math.random()*60); }
+      // Fall off bottom
+      if (g.y > lvl.height+100) g.dead=true;
+    }
+    // Push player on contact
+    if (!P.dead && !P.inv && !g.onWall) {
+      if (Math.abs((P.x+P.w/2)-(g.x+g.w/2)) < (P.w/2+g.w/2+2) &&
+          Math.abs((P.y+P.h/2)-(g.y+g.h/2)) < (P.h/2+g.h/2+2)) {
+        // Knockback push
+        const pushDir = P.x+P.w/2 < g.x+g.w/2 ? -1 : 1;
+        P.vx = pushDir * 5;
+        P.vy = -4;
+        P.ground = false;
+        hurtPlayer(false);
+        sfx('goat');
+      }
+    }
+    // Kill goat with attack or stomp
+    if (P.atk > ATK_DUR-5 && !g.onWall) {
+      const atkX = P.x + (P.face>0 ? P.w : -ATK_RANGE);
+      const atkW = P.weapon==='machete' ? ATK_RANGE+8 : ATK_RANGE;
+      if (atkX+atkW > g.x && atkX < g.x+g.w && P.y+P.h > g.y && P.y < g.y+g.h) {
+        g.dead=true; P.score+=150; sfx('enemydie'); spawn(g.x+g.w/2,g.y+g.h/2,8,'#AA8855',3,18);
+      }
+    }
+  }
+}
+
+// === DOG UPDATE ===
+function updateDogs() {
+  for (const d of dogs) {
+    if (d.dead) continue;
+    if (!d.active) {
+      // Trigger when player approaches vertically
+      if (P.y < d.trigY && P.y > d.trigY - 200 && Math.abs(P.y - d.platY) < 120) {
+        d.active = true;
+        d.dir = P.x+P.w/2 < d.x ? -1 : 1; // come from opposite side
+        d.x = d.dir > 0 ? PLAY_L - 20 : PLAY_R + 20;
+        d.vx = d.dir * d.runSpd;
+        sfx('bark'); d.bark = 30;
+      }
+    } else {
+      d.x += d.vx;
+      if (d.bark > 0) d.bark--;
+      // Bark periodically
+      if (d.bark <= 0 && Math.random() < 0.02) { sfx('bark'); d.bark = 25; }
+      // Bite player on contact
+      if (!P.dead && !P.inv) {
+        if (Math.abs(d.x+d.w/2-(P.x+P.w/2)) < (d.w/2+P.w/2) &&
+            Math.abs(d.y+d.h/2-(P.y+P.h/2)) < (d.h/2+P.h/2+4)) {
+          hurtPlayer(false);
+          d.vx *= 1.3; // dog speeds away after bite
+        }
+      }
+      // Kill with attack
+      if (P.atk > ATK_DUR-5) {
+        const atkX = P.x + (P.face>0 ? P.w : -ATK_RANGE);
+        const atkW = P.weapon==='machete' ? ATK_RANGE+8 : ATK_RANGE;
+        if (atkX+atkW > d.x && atkX < d.x+d.w && P.y+P.h > d.y && P.y < d.y+d.h) {
+          d.dead=true; P.score+=100; sfx('enemydie'); spawn(d.x+d.w/2,d.y+d.h/2,6,'#AA7744',2,15);
+        }
+      }
+      // Stomp
+      if (P.vy > 0 && P.y+P.h >= d.y && P.y+P.h <= d.y+8 && P.x+P.w > d.x && P.x < d.x+d.w) {
+        d.dead=true; P.score+=100; P.vy=JUMP_V*0.5; sfx('enemydie'); spawn(d.x+d.w/2,d.y+d.h/2,6,'#AA7744',2,15);
+      }
+      // Runs off screen
+      if (d.x < PLAY_L - 60 || d.x > PLAY_R + 60) d.dead=true;
     }
   }
 }
@@ -1363,6 +1569,152 @@ function drawHazards() {
       X.beginPath();X.moveTo(sx+5*dir*ZOOM,sy);X.lineTo(sx+14*dir*ZOOM,sy+wY*ZOOM);X.lineTo(sx+8*dir*ZOOM,sy+2*ZOOM);X.fill();
       X.fillStyle='#CC8800';X.beginPath();X.moveTo(sx+8*dir*ZOOM,sy-ZOOM);X.lineTo(sx+12*dir*ZOOM,sy);X.lineTo(sx+8*dir*ZOOM,sy+ZOOM);X.fill();
     }
+    if (h.type==='boulder') {
+      if (h.hit) continue;
+      // Warning shadow
+      if (h.warn>0 && !h.falling) {
+        const[sx,sy]=w2s(h.x+h.bw/2, h.trigY+20);
+        X.fillStyle=`rgba(0,0,0,${Math.min(0.5,h.warn*0.008)})`;
+        X.beginPath();X.ellipse(sx,sy,(h.bw/2+8)*ZOOM,5*ZOOM,0,0,Math.PI*2);X.fill();
+        if(frame%16<8){X.fillStyle='#FF4400';X.font=`bold ${16*ZOOM}px sans-serif`;X.textAlign='center';X.fillText('!!',sx,sy-14*ZOOM);}
+      }
+      if (h.falling) {
+        const[sx,sy]=w2s(h.x, h.fy);
+        const bw=h.bw*ZOOM, bh=h.bh*ZOOM;
+        // Rock body (irregular)
+        X.fillStyle='#5A5A5A';
+        X.beginPath();
+        X.moveTo(sx+bw*0.1,sy); X.lineTo(sx+bw*0.3,sy-bh*0.1);
+        X.lineTo(sx+bw*0.7,sy-bh*0.05); X.lineTo(sx+bw*0.95,sy+bh*0.15);
+        X.lineTo(sx+bw,sy+bh*0.6); X.lineTo(sx+bw*0.85,sy+bh);
+        X.lineTo(sx+bw*0.2,sy+bh*0.95); X.lineTo(sx,sy+bh*0.5);
+        X.closePath(); X.fill();
+        // Highlight
+        X.fillStyle='#7A7A7A';
+        X.beginPath();
+        X.moveTo(sx+bw*0.2,sy+bh*0.1); X.lineTo(sx+bw*0.55,sy+bh*0.05);
+        X.lineTo(sx+bw*0.6,sy+bh*0.4); X.lineTo(sx+bw*0.25,sy+bh*0.45);
+        X.closePath(); X.fill();
+        // Cracks
+        X.strokeStyle='#444';X.lineWidth=ZOOM;
+        X.beginPath();X.moveTo(sx+bw*0.4,sy+bh*0.2);X.lineTo(sx+bw*0.5,sy+bh*0.5);X.lineTo(sx+bw*0.35,sy+bh*0.7);X.stroke();
+      }
+    }
+  }
+}
+
+// === DRAW ALCOVES ===
+function drawAlcoves() {
+  const th = WORLDS[world];
+  for (const a of alcoves) {
+    const[sx,sy]=w2s(a.x, a.y);
+    if(sy<-60*ZOOM||sy>C.height+60*ZOOM) continue;
+    const aw=a.w*ZOOM, oh=35*ZOOM; // overhang height
+    // Dark cave recess
+    X.fillStyle='rgba(0,0,0,0.5)';
+    X.fillRect(sx, sy-oh, aw, oh);
+    // Overhang rock (top of alcove)
+    X.fillStyle=th.canyon[0];
+    X.fillRect(sx, sy-oh-4*ZOOM, aw+3*ZOOM, 5*ZOOM);
+    // Rock texture on overhang
+    X.fillStyle=th.canyon[1];
+    X.fillRect(sx+3*ZOOM, sy-oh-3*ZOOM, 6*ZOOM, 3*ZOOM);
+    X.fillRect(sx+aw-8*ZOOM, sy-oh-2*ZOOM, 5*ZOOM, 2*ZOOM);
+    // Side wall matching canyon
+    if (a.side==='left') {
+      X.fillStyle=th.canyon[0]; X.fillRect(sx+aw, sy-oh, 3*ZOOM, oh);
+    } else {
+      X.fillStyle=th.canyon[1]; X.fillRect(sx-3*ZOOM, sy-oh, 3*ZOOM, oh);
+    }
+    // Subtle shelter indicator
+    X.fillStyle='rgba(100,200,100,0.12)';
+    X.fillRect(sx, sy-oh, aw, oh);
+  }
+}
+
+// === DRAW GOATS ===
+function drawGoats() {
+  for (const g of goats) {
+    if (g.dead) continue;
+    const cx=g.x+g.w/2, cy=g.y+g.h;
+    const[sx,sy]=w2s(cx,cy);
+    if(sy<-30*ZOOM||sy>C.height+30*ZOOM) continue;
+    X.save();
+    X.translate(sx,sy);
+    X.scale(ZOOM*g.dir,ZOOM);
+    const legA=g.onWall?0:Math.sin(g.anim)*0.4;
+    // Legs (4)
+    X.fillStyle='#8B7355';
+    X.save();X.translate(-4,-2);X.rotate(legA);X.fillRect(-1,0,2,7);X.restore();
+    X.save();X.translate(4,-2);X.rotate(-legA);X.fillRect(-1,0,2,7);X.restore();
+    X.save();X.translate(-2,-2);X.rotate(-legA*0.8);X.fillRect(-1,0,2,6);X.restore();
+    X.save();X.translate(2,-2);X.rotate(legA*0.8);X.fillRect(-1,0,2,6);X.restore();
+    // Body
+    X.fillStyle='#C4A882';
+    X.beginPath();X.ellipse(0,-8,7,5,0,0,Math.PI*2);X.fill();
+    // Head
+    X.fillStyle='#B8976A';
+    X.beginPath();X.ellipse(6,-12,4,3.5,0.2,0,Math.PI*2);X.fill();
+    // Horns (curved)
+    X.strokeStyle='#8B7355';X.lineWidth=1.5;
+    X.beginPath();X.moveTo(5,-14);X.quadraticCurveTo(3,-19,0,-17);X.stroke();
+    X.beginPath();X.moveTo(7,-14);X.quadraticCurveTo(9,-19,12,-17);X.stroke();
+    // Eye
+    X.fillStyle='#000';X.fillRect(7,-13,1.5,1.5);
+    // Beard
+    X.strokeStyle='#9A8060';X.lineWidth=1;
+    X.beginPath();X.moveTo(8,-10);X.lineTo(9,-7);X.stroke();
+    // Tail
+    X.strokeStyle='#B8976A';X.lineWidth=1.5;
+    X.beginPath();X.moveTo(-7,-9);X.lineTo(-10,-11);X.stroke();
+    X.restore();
+  }
+}
+
+// === DRAW DOGS ===
+function drawDogs() {
+  for (const d of dogs) {
+    if (d.dead || !d.active) continue;
+    const cx=d.x+d.w/2, cy=d.y+d.h;
+    const[sx,sy]=w2s(cx,cy);
+    if(sy<-30*ZOOM||sy>C.height+30*ZOOM) continue;
+    X.save();
+    X.translate(sx,sy);
+    const dir = d.vx >= 0 ? 1 : -1;
+    X.scale(ZOOM*dir,ZOOM);
+    const runA=Math.sin(frame*0.3)*0.6;
+    // Legs (4, running animation)
+    X.fillStyle='#8B6B3A';
+    X.save();X.translate(-5,-1);X.rotate(runA);X.fillRect(-1,0,2,7);X.restore();
+    X.save();X.translate(5,-1);X.rotate(-runA);X.fillRect(-1,0,2,7);X.restore();
+    X.save();X.translate(-2,-1);X.rotate(-runA*0.7);X.fillRect(-1,0,2,6);X.restore();
+    X.save();X.translate(3,-1);X.rotate(runA*0.7);X.fillRect(-1,0,2,6);X.restore();
+    // Body
+    X.fillStyle='#A08050';
+    X.beginPath();X.ellipse(0,-7,8,5,0,0,Math.PI*2);X.fill();
+    // Head
+    X.fillStyle='#B0905A';
+    X.beginPath();X.ellipse(8,-10,4.5,3.5,0.15,0,Math.PI*2);X.fill();
+    // Snout
+    X.fillStyle='#C0A070';
+    X.beginPath();X.ellipse(12,-9,3,2,-0.1,0,Math.PI*2);X.fill();
+    // Nose
+    X.fillStyle='#333';X.beginPath();X.arc(14,-9,1.2,0,Math.PI*2);X.fill();
+    // Eye
+    X.fillStyle='#222';X.fillRect(9,-11,1.5,1.5);
+    // Ears (floppy)
+    X.fillStyle='#8B6B3A';
+    X.beginPath();X.moveTo(6,-12);X.lineTo(4,-15);X.lineTo(7,-13);X.fill();
+    // Tail (wagging)
+    const tailWag=Math.sin(frame*0.4)*0.5;
+    X.strokeStyle='#A08050';X.lineWidth=2;
+    X.beginPath();X.moveTo(-8,-8);X.quadraticCurveTo(-12,-14+tailWag*4,-10,-16+tailWag*3);X.stroke();
+    // Bark indicator
+    if (d.bark > 0) {
+      X.fillStyle='#FFF';X.font='bold 8px sans-serif';X.textAlign='center';
+      X.fillText('WOOF!',8,-18);
+    }
+    X.restore();
   }
 }
 
@@ -1740,14 +2092,36 @@ function drawHelp() {
   X.fillText('Sells Fresh Tuna (Water). Shield + Power Boost', col1, y + lh * 0.75);
   y += lh * 2.2;
 
+  // HAZARDS
+  y = heading('\u26A0 Hazards', y); y += lh * 0.3;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#AA8855';
+  X.fillText('\u2642 Mountain Goats', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('Climb walls, jump onto platforms, push you off!', col1, y + lh * 0.75);
+  y += lh * 1.8;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#A08050';
+  X.fillText('\u2620 Stray Dogs', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('Run barking across platforms, bite on contact', col1, y + lh * 0.75);
+  y += lh * 1.8;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#666';
+  X.fillText('\u25CF Mega Boulders', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('Massive falling rocks! Hide in wall alcoves', col1, y + lh * 0.75);
+  y += lh * 2.2;
+
   // TIPS
   y = heading('\u26A1 Tips', y); y += lh * 0.3;
   X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
   const tips = [
-    '\u2022 Jump on zombie conquistadors to stomp them',
+    '\u2022 Jump on enemies to stomp them, or attack with X',
     '\u2022 Collect Water Bottles and Bananas to trade',
     '\u2022 Drago Fruit gives you a shield, Aloe gives +1 life',
     '\u2022 Ganja makes you invincible + rainbow psychedelic!',
+    '\u2022 Wall alcoves protect from mega boulders',
     '\u2022 Reach the flag at the top before the volcano erupts',
   ];
   for (const tip of tips) {
@@ -1792,7 +2166,7 @@ function update(){
     case ST.INTRO:if(stTimer>60&&(inp.jp||inp.start)){loadLevel();state=ST.PLAY;playMusic(world);}break;
     case ST.PLAY:
       if(inp.start&&stTimer>10){state=ST.PAUSE;stTimer=0;if(curTrack)curTrack.volume=0.1;break;}
-      updatePlayer();updateEnemies();updatePlatforms();updateHazards();checkCollectibles();updateTimer();updateCamera();updateParticles();updateShake();break;
+      updatePlayer();updateEnemies();updateGoats();updateDogs();updatePlatforms();updateHazards();checkCollectibles();updateTimer();updateCamera();updateParticles();updateShake();break;
     case ST.COMPLETE:updateParticles();if(stTimer>90&&(inp.jp||inp.start))nextLevel();break;
     case ST.OVER:updateParticles();if(stTimer>90&&(inp.jp||inp.start))startGame(false);break;
     case ST.PAUSE:if(inp.start&&stTimer>10){state=ST.PLAY;stTimer=0;if(curTrack)curTrack.volume=0.35;}break;
@@ -1816,7 +2190,7 @@ function render(){
     case ST.INTRO:drawIntro();break;
     case ST.PLAY:case ST.PAUSE:case ST.COMPLETE:case ST.OVER:
       X.save();X.translate(shake.x*ZOOM,shake.y*ZOOM);
-      drawBg();drawWalls();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawHazards();drawPlayer();drawLava();drawParticles();
+      drawBg();drawWalls();drawAlcoves();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawGoats();drawDogs();drawHazards();drawPlayer();drawLava();drawParticles();
       X.restore();drawHUD();
       // Psychedelic overlay glow during trip
       if(tripping){
