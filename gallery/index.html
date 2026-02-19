@@ -343,6 +343,19 @@
     </div>
   </a>
 
+  <a class="game-card" href="barranco-brothers/">
+    <div class="game-preview">
+      <canvas class="demo-canvas" data-game="barranco" data-color="#FF8C00" data-bg="10,8,4"></canvas>
+      <div class="play-overlay"><div class="play-btn">Play</div></div>
+    </div>
+    <div class="game-info">
+      <h2 style="color: #FF8C00">Barranco Brothers</h2>
+      <div class="mashup" style="color: #FFD700">Climber &times; Guanche Spirit</div>
+      <div class="description">Climb barrancos across all 8 Canary Islands. Trade with cave hippies, smoke ganja, fight zombie conquistadors, and restore the ancient spirit of the Guanches.</div>
+      <span class="controls-tag">1 Player &middot; Gamepad &middot; SNES &middot; Mobile</span>
+    </div>
+  </a>
+
   <!-- ARCADE_ENTRIES_END -->
 </div>
 
@@ -583,6 +596,57 @@ document.querySelectorAll('.demo-canvas').forEach(canvas => {
         ctx.fillText(emojis[i], ex, ey);
       }
       ctx.globalAlpha = 1;
+    },
+
+    'barranco': () => {
+      ctx.fillStyle = 'rgb(' + bgRGB + ')';
+      ctx.fillRect(0, 0, w, h);
+
+      // Sky gradient
+      var skyGrd = ctx.createLinearGradient(0, 0, 0, h * 0.6);
+      skyGrd.addColorStop(0, '#4A90D9');
+      skyGrd.addColorStop(1, '#87CEEB');
+      ctx.fillStyle = skyGrd;
+      ctx.fillRect(0, 0, w, h * 0.6);
+
+      // Canyon walls
+      ctx.fillStyle = '#8B6842';
+      ctx.fillRect(0, 0, 25, h);
+      ctx.fillStyle = '#A07848';
+      ctx.fillRect(w - 25, 0, 25, h);
+
+      // Platforms
+      ctx.fillStyle = '#C4956A';
+      var platY = h * 0.75 + Math.sin(frame / 40) * 10;
+      ctx.fillRect(40, platY, 50, 6);
+      ctx.fillRect(w * 0.45, platY - 35, 40, 6);
+      ctx.fillRect(w * 0.2, platY - 70, 55, 6);
+      ctx.fillRect(w * 0.55, platY - 100, 45, 6);
+
+      // Hiker
+      var hx = 60 + Math.sin(frame / 18) * 30;
+      var hy = platY - 20 + Math.abs(Math.sin(frame / 10)) * -15;
+      ctx.fillStyle = '#CC4444';
+      ctx.fillRect(hx - 3, hy - 8, 6, 8);
+      ctx.fillStyle = '#E8B88A';
+      ctx.beginPath(); ctx.arc(hx, hy - 12, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#8B6F47';
+      ctx.fillRect(hx - 4, hy - 16, 8, 2);
+
+      // Rising water
+      var waterY = h * 0.85 + Math.sin(frame / 30) * 5 - (frame % 200) * 0.05;
+      ctx.fillStyle = 'rgba(50,120,190,0.45)';
+      ctx.fillRect(0, Math.max(waterY, h * 0.5), w, h);
+
+      // Wave
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var x = 0; x <= w; x += 4) {
+        var wy = Math.max(waterY, h * 0.5) + Math.sin(x * 0.05 + frame * 0.08) * 2;
+        if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+      }
+      ctx.stroke();
     },
 
     'wyrm-breaker': () => {
