@@ -149,7 +149,7 @@ const PAPAS_DUR = 480; // 8 seconds speed boost
 const TUNA_DUR = 600;  // 10 seconds shield + power
 
 // === GAME STATE ===
-const ST = { TITLE:0, INTRO:1, PLAY:2, COMPLETE:3, OVER:4, PAUSE:5 };
+const ST = { TITLE:0, INTRO:1, PLAY:2, COMPLETE:3, OVER:4, PAUSE:5, BOSS:6 };
 let state = ST.TITLE;
 let world = 1, level = 1;
 let stTimer = 0, frame = 0;
@@ -167,6 +167,34 @@ let lvlTimer = 0; // frames remaining
 let lvlTimerMax = 0;
 let plats=[], hazs=[], cols=[], enemies=[], caves=[], npcs=[], goats=[], dogs=[], alcoves=[], parts=[];
 let shake={x:0,y:0,i:0};
+let boss = null; // active boss object
+
+// Boss types rotate per world
+const BOSS_TYPES = [null,
+  'conquistador','golem','helicopter','conquistador','golem','helicopter','conquistador','golem'
+];
+const BOSS_NAMES = {
+  conquistador: 'Conquistador General',
+  golem: 'Stone Colossus',
+  helicopter: 'Policia Helicopter'
+};
+const BOSS_TAUNTS = {
+  conquistador: [
+    "I claimed this island 500 years ago! You cannot take it back!",
+    "The Crown sent me to crush rebels like you!",
+    "Your ancestors fell before my blade. You will too!",
+  ],
+  golem: [
+    "I AM THE MOUNTAIN. YOU ARE DUST.",
+    "THE STONES REMEMBER WHAT YOU FORGOT.",
+    "NO MORTAL CLIMBS PAST ME.",
+  ],
+  helicopter: [
+    "HALT! Illegal climbing activity detected!",
+    "This is a restricted zone! Turn yourself in!",
+    "Resistance is futile! The system always wins!",
+  ],
+};
 let hiScore=0, bestW=1, bestL=1;
 let showHelp = false;
 
@@ -331,6 +359,34 @@ function sfx(type) {
       g.gain.setValueAtTime(.25,t); g.gain.linearRampToValueAtTime(.15,t+.3);
       g.gain.exponentialRampToValueAtTime(.001,t+.8);
       o.start(t); o.stop(t+.8); break;
+    case 'bosshit':
+      o.type='square'; o.frequency.setValueAtTime(120,t); o.frequency.linearRampToValueAtTime(60,t+.15);
+      g.gain.setValueAtTime(.2,t); g.gain.exponentialRampToValueAtTime(.001,t+.2);
+      o.start(t); o.stop(t+.2); break;
+    case 'bossdie': {
+      [200,300,400,500,600,800].forEach((f,i) => {
+        const oo=actx.createOscillator(), gg=actx.createGain();
+        oo.type='sawtooth'; oo.frequency.value=f;
+        gg.gain.setValueAtTime(.15,t+i*.12); gg.gain.exponentialRampToValueAtTime(.001,t+i*.12+.2);
+        oo.connect(gg); gg.connect(actx.destination);
+        oo.start(t+i*.12); oo.stop(t+i*.12+.25);
+      }); break; }
+    case 'bossroar':
+      o.type='sawtooth'; o.frequency.setValueAtTime(80,t); o.frequency.linearRampToValueAtTime(50,t+.4);
+      o.frequency.linearRampToValueAtTime(90,t+.6);
+      g.gain.setValueAtTime(.18,t); g.gain.linearRampToValueAtTime(.12,t+.4);
+      g.gain.exponentialRampToValueAtTime(.001,t+.8);
+      o.start(t); o.stop(t+.8); break;
+    case 'helicopter':
+      o.type='square'; o.frequency.setValueAtTime(60,t); o.frequency.setValueAtTime(65,t+.05);
+      o.frequency.setValueAtTime(60,t+.1); o.frequency.setValueAtTime(65,t+.15);
+      g.gain.setValueAtTime(.06,t); g.gain.setValueAtTime(.08,t+.05);
+      g.gain.setValueAtTime(.06,t+.1); g.gain.exponentialRampToValueAtTime(.001,t+.25);
+      o.start(t); o.stop(t+.25); break;
+    case 'teargas':
+      o.type='sine'; o.frequency.setValueAtTime(800,t); o.frequency.linearRampToValueAtTime(200,t+.3);
+      g.gain.setValueAtTime(.1,t); g.gain.exponentialRampToValueAtTime(.001,t+.4);
+      o.start(t); o.stop(t+.4); break;
     default:
       o.type='sine'; o.frequency.value=440;
       g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.1);
@@ -458,8 +514,8 @@ function genLevel(w, l) {
       nextCaveY = curY - 350 - rng() * 250;
     }
 
-    // Enemies (from level 1-2 onward, NOT on platforms with NPCs)
-    if (!platTaken && diff > 1 && type === 'solid' && pw > 55 && rng() < 0.12 + d * 0.01) {
+    // Enemies (zombie conquistadors, NOT on platforms with NPCs)
+    if (!platTaken && type === 'solid' && pw > 55 && rng() < 0.10 + d * 0.01) {
       en.push({
         x: nx + pw/2, y: curY - 26, platX: nx, platW: pw,
         vx: 0.4 + rng() * 0.6, dir: rng() < 0.5 ? 1 : -1,
@@ -499,8 +555,8 @@ function genLevel(w, l) {
       nextNpcY = curY - 400 - rng() * 300;
     }
 
-    // Mountain goats (from world 2+, climb walls and jump to platforms)
-    if (w >= 2 && rng() < 0.06 + d * 0.004) {
+    // Mountain goats (climb walls and jump to platforms)
+    if (rng() < 0.05 + d * 0.005) {
       const side = rng() < 0.5 ? 'left' : 'right';
       gt.push({
         x: side === 'left' ? PLAY_L - 6 : PLAY_R + 6,
@@ -513,8 +569,8 @@ function genLevel(w, l) {
       });
     }
 
-    // Stray dogs (from world 1-3+, run across platforms barking)
-    if (diff >= 3 && type === 'solid' && pw > 60 && !platTaken && rng() < 0.04 + d * 0.003) {
+    // Stray dogs (run across platforms barking)
+    if (type === 'solid' && pw > 60 && !platTaken && rng() < 0.035 + d * 0.004) {
       dg.push({
         x: rng() < 0.5 ? PLAY_L - 20 : PLAY_R + 20,
         y: curY - 14, platY: curY,
@@ -524,8 +580,8 @@ function genLevel(w, l) {
       });
     }
 
-    // Mega boulders (from world 3+, massive rocks that fill the channel)
-    if (w >= 3 && rng() < 0.03 + d * 0.003) {
+    // Mega boulders (massive rocks that fill the channel)
+    if (rng() < 0.025 + d * 0.004) {
       const bsize = 40 + rng() * 30; // 40-70 pixels wide = huge
       hs.push({
         type: 'boulder', x: PLAY_L + 10 + rng() * (PLAY_R - PLAY_L - bsize - 20),
@@ -534,8 +590,8 @@ function genLevel(w, l) {
       });
     }
 
-    // Wall alcoves / overhangs (safe spots, from world 2+)
-    if (w >= 2 && rng() < 0.05 + w * 0.01) {
+    // Wall alcoves / overhangs (safe spots)
+    if (rng() < 0.04 + d * 0.008) {
       const alSide = rng() < 0.5 ? 'left' : 'right';
       const alW = 28 + rng() * 14;
       al.push({
@@ -738,7 +794,9 @@ function updatePlayer() {
     const g = lvl.goal;
     if (P.y+P.h >= g.y && P.y+P.h <= g.y+PLAT_H+4 && P.x+P.w > g.x && P.x < g.x+g.w && P.vy >= 0) {
       P.y = g.y - P.h; P.vy = 0; P.ground = true;
-      completeLevel(); return;
+      // Level X-4: trigger boss fight instead of completing
+      if (level === 4 && !boss) { spawnBoss(); return; }
+      if (!boss) { completeLevel(); return; }
     }
   }
 
@@ -1783,19 +1841,22 @@ function drawPlayer() {
   X.scale(ZOOM*P.face,ZOOM);
 
   const la=P.ground?Math.sin(P.wf)*0.5:0.3;
-  X.fillStyle='#445566';
+  // Legs — hide leggings
+  X.fillStyle='#6A5038';
   X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
   X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
-
-  X.fillStyle='#4A3228';
+  // Feet — wrapped hide sandals
+  X.fillStyle='#5A4030';
   const b1=P.ground?Math.sin(P.wf)*2.5:1.5;
   X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
 
-  // Body (rainbow shirt when tripping)
-  X.fillStyle=tripping?`hsl(${(frame*6)%360},90%,55%)`:'#CC4444';
+  // Body — Guanche warrior: animal hide vest with revolutionary bandana hints
+  X.fillStyle=tripping?`hsl(${(frame*6)%360},90%,55%)`:'#7A5533'; // brown hide
   X.fillRect(-5.5,-19,11,12);
+  // Hide texture marks
+  if(!tripping){X.fillStyle='#6A4828';X.fillRect(-4,-17,2,2);X.fillRect(1,-15,2,2);X.fillRect(-2,-12,2,2);}
 
-  X.fillStyle='#BB5522';X.fillRect(-7,-17,3,8);
+  X.fillStyle='#8B6B3A';X.fillRect(-7,-17,3,8); // hide shoulder strap
 
   // Arm + weapon
   const armSwing=P.atk>0?-1.2:P.ground?Math.sin(P.wf)*0.4:-0.3;
@@ -1818,17 +1879,27 @@ function drawPlayer() {
     X.stroke();
   }
 
-  X.fillStyle='#E8B88A';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+  // Head — darker skin (Guanche)
+  X.fillStyle='#C49A6C';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+  // Dark hair (wild)
+  X.fillStyle='#1A1A1A';
+  X.beginPath();X.moveTo(-5,-25);X.lineTo(-6,-28);X.lineTo(-3,-27);X.lineTo(0,-29);
+  X.lineTo(3,-27);X.lineTo(6,-28);X.lineTo(5,-25);X.closePath();X.fill();
   // Eyes: squinted when tripping/smoking
   if(P.weedT>0){
-    X.fillStyle='#333';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6); // squint
-    // Goofy grin
-    X.strokeStyle='#333';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();
+    X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);
+    X.strokeStyle='#222';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();
   }else{
-    X.fillStyle='#333';X.fillRect(1.5,-24,1.5,1.5);
+    X.fillStyle='#222';X.fillRect(1.5,-24,1.5,1.5);
+    // Determined expression — slight frown
+    X.strokeStyle='#443322';X.lineWidth=0.6;X.beginPath();X.moveTo(-2,-21);X.lineTo(2,-21.5);X.stroke();
   }
-  X.fillStyle='#8B6F47';X.fillRect(-6.5,-27.5,13,2.5);
-  X.beginPath();X.moveTo(-4,-27.5);X.lineTo(4,-27.5);X.lineTo(2,-32);X.lineTo(-2,-32);X.closePath();X.fill();
+  // Revolutionary headband (red)
+  X.fillStyle='#CC2200';X.fillRect(-6,-27,12,2.5);
+  // Headband tails flowing behind
+  X.strokeStyle='#CC2200';X.lineWidth=1.5;
+  X.beginPath();X.moveTo(-6,-26);X.quadraticCurveTo(-10,-24,-12,-27+Math.sin(P.wf*0.5)*2);X.stroke();
+  X.beginPath();X.moveTo(-6,-25);X.quadraticCurveTo(-9,-22,-11,-25+Math.sin(P.wf*0.5+1)*2);X.stroke();
 
   // Smoking animation: joint in mouth
   const isSmoking = P.weedT >= WEED_DUR - WEED_SMOKE_PHASE;
@@ -1955,8 +2026,10 @@ function drawTitle() {
   X.font=`${ts*0.35}px sans-serif`;X.fillStyle='#CCC';
   X.fillText('Spirit of the Guanches',C.width/2,C.height*0.32);
 
-  X.font=`${Math.max(11,ts*0.22)}px sans-serif`;X.fillStyle='#888';
-  X.fillText('Climb barrancos \u2022 Trade with cave sages \u2022 Fight undead conquistadors',C.width/2,C.height*0.40);
+  X.font=`${Math.max(11,ts*0.22)}px sans-serif`;X.fillStyle='#CC2200';
+  X.fillText('Guanche warrior \u2022 Underground outcast \u2022 Modern revolutionary',C.width/2,C.height*0.38);
+  X.fillStyle='#888';
+  X.fillText('Climb barrancos \u2022 Trade with cave sages \u2022 Defeat the oppressors',C.width/2,C.height*0.43);
 
   X.font=`${Math.max(11,ts*0.22)}px monospace`;X.fillStyle='#777';
   X.fillText('Arrows/WASD + Space + Z/X to attack \u2022 Gamepad supported',C.width/2,C.height*0.52);
@@ -2035,7 +2108,7 @@ function drawHelp() {
   X.font = `bold ${ts}px sans-serif`; X.fillStyle = '#FFD700';
   X.fillText('BARRANCO BROTHERS', C.width/2, ts + 10);
   X.font = `${fs}px sans-serif`; X.fillStyle = '#AAA';
-  X.fillText('Spirit of the Guanches — Help', C.width/2, ts + 10 + fs * 1.5);
+  X.fillText('Guanche Warrior \u2022 Underground Outcast', C.width/2, ts + 10 + fs * 1.5);
 
   let y = ts + 10 + fs * 3.5;
   X.textAlign = 'left';
@@ -2113,16 +2186,37 @@ function drawHelp() {
   X.fillText('Massive falling rocks! Hide in wall alcoves', col1, y + lh * 0.75);
   y += lh * 2.2;
 
+  // BOSSES
+  y = heading('\u2620 End Bosses (Level X-4)', y); y += lh * 0.3;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#FF4444';
+  X.fillText('\u2694 Conquistador General', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('Ancient undead commander. Charges + throws swords', col1, y + lh * 0.75);
+  y += lh * 1.6;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#8A8A8A';
+  X.fillText('\u25B2 Stone Colossus', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('Living mountain. Quake stomps + throws boulders', col1, y + lh * 0.75);
+  y += lh * 1.6;
+
+  X.font = `bold ${fs}px sans-serif`; X.fillStyle = '#2266AA';
+  X.fillText('\u2708 Policia Helicopter', col1, y);
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('The system fights back. Tear gas + gunfire', col1, y + lh * 0.75);
+  y += lh * 2.2;
+
   // TIPS
   y = heading('\u26A1 Tips', y); y += lh * 0.3;
   X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
   const tips = [
     '\u2022 Jump on enemies to stomp them, or attack with X',
     '\u2022 Collect Water Bottles and Bananas to trade',
-    '\u2022 Drago Fruit gives you a shield, Aloe gives +1 life',
-    '\u2022 Ganja makes you invincible + rainbow psychedelic!',
+    '\u2022 Ganja = invincibility + rainbow psychedelic!',
     '\u2022 Wall alcoves protect from mega boulders',
-    '\u2022 Reach the flag at the top before the volcano erupts',
+    '\u2022 Level X-4 = BOSS FIGHT! Hit them with attacks or stomps',
+    '\u2022 You are the resistance. Never stop climbing.',
   ];
   for (const tip of tips) {
     X.fillText(tip, col1, y); y += lh;
@@ -2135,9 +2229,397 @@ function drawHelp() {
   X.fillText('Press H to close', C.width/2, y);
 }
 
+// === BOSS SYSTEM ===
+function spawnBoss() {
+  const btype = BOSS_TYPES[world] || 'conquistador';
+  const diff = (world-1)*4+level;
+  const baseHp = 5 + world * 3; // 8 to 29 HP
+  const g = lvl.goal;
+  boss = {
+    type: btype, hp: baseHp, maxHp: baseHp,
+    x: g.x + g.w/2, y: g.y - 60,
+    vx: 0, vy: 0, dir: P.x < g.x+g.w/2 ? -1 : 1,
+    phase: 0, timer: 0, invT: 0, anim: 0,
+    taunt: BOSS_TAUNTS[btype][Math.floor(Math.random()*BOSS_TAUNTS[btype].length)],
+    tauntT: 180, // show taunt for 3 seconds
+    attacks: [], // projectiles/effects
+    dead: false, deathT: 0, flashT: 0,
+    // Type-specific
+    w: btype==='helicopter'?50:btype==='golem'?40:28,
+    h: btype==='helicopter'?30:btype==='golem'?50:42,
+    // Helicopter specific
+    heliY: btype==='helicopter' ? g.y - 120 : 0,
+    // Golem specific
+    slamT: 0, quakeT: 0,
+  };
+  state = ST.BOSS; stTimer = 0;
+  sfx('bossroar'); addShake(12);
+  // Stop timer/lava during boss fight
+  lvlTimer = 99999; lava.active = false;
+}
+
+function updateBoss() {
+  if (!boss || boss.dead) {
+    if (boss && boss.dead) {
+      boss.deathT++;
+      if (boss.deathT > 120) { boss = null; completeLevel(); }
+    }
+    return;
+  }
+  boss.anim += 0.05;
+  boss.timer++;
+  if (boss.invT > 0) boss.invT--;
+  if (boss.tauntT > 0) boss.tauntT--;
+  if (boss.flashT > 0) boss.flashT--;
+
+  const g = lvl.goal;
+  const arenaL = g.x - 30, arenaR = g.x + g.w + 30;
+  boss.dir = P.x+P.w/2 < boss.x ? -1 : 1;
+
+  switch(boss.type) {
+    case 'conquistador': updateBossConquistador(arenaL, arenaR); break;
+    case 'golem': updateBossGolem(arenaL, arenaR); break;
+    case 'helicopter': updateBossHelicopter(); break;
+  }
+
+  // Update boss attacks/projectiles
+  for (let i = boss.attacks.length-1; i >= 0; i--) {
+    const a = boss.attacks[i];
+    a.x += a.vx||0; a.y += a.vy||0; a.life--;
+    if (a.vy !== undefined && a.type !== 'teargas') a.vy += 0.15;
+    if (a.life <= 0) { boss.attacks.splice(i,1); continue; }
+    // Hit player
+    if (!P.dead && !P.inv && Math.abs(a.x-(P.x+P.w/2))<(a.w/2+P.w/2) && Math.abs(a.y-(P.y+P.h/2))<(a.h/2+P.h/2)) {
+      hurtPlayer(a.type==='teargas');
+      if (a.type==='teargas') { // gas cloud lingers
+        spawn(a.x, a.y, 12, 'rgba(180,255,100,0.6)', 2, 30);
+      }
+      boss.attacks.splice(i,1);
+    }
+  }
+
+  // Player attacks boss
+  if (boss.invT <= 0) {
+    // Melee attack
+    if (P.atk > ATK_DUR-5) {
+      const atkX = P.x + (P.face>0 ? P.w : -ATK_RANGE);
+      const atkW = P.weapon==='machete' ? ATK_RANGE+10 : ATK_RANGE;
+      if (atkX+atkW > boss.x-boss.w/2 && atkX < boss.x+boss.w/2 &&
+          P.y+P.h > boss.y && P.y < boss.y+boss.h) {
+        hitBoss(P.weapon==='machete' ? 2 : 1);
+      }
+    }
+    // Stomp (for non-helicopter)
+    if (boss.type !== 'helicopter' && P.vy > 0 &&
+        P.y+P.h >= boss.y && P.y+P.h <= boss.y+10 &&
+        P.x+P.w > boss.x-boss.w/2 && P.x < boss.x+boss.w/2) {
+      hitBoss(1); P.vy = JUMP_V * 0.7;
+    }
+  }
+
+  // Boss contact damage (non-helicopter)
+  if (boss.type !== 'helicopter' && !P.dead && !P.inv && boss.invT <= 0) {
+    if (Math.abs((P.x+P.w/2)-boss.x) < (P.w/2+boss.w/2) &&
+        Math.abs((P.y+P.h/2)-(boss.y+boss.h/2)) < (P.h/2+boss.h/2)) {
+      hurtPlayer(false);
+    }
+  }
+}
+
+function hitBoss(dmg) {
+  boss.hp -= dmg; boss.invT = 20; boss.flashT = 15;
+  sfx('bosshit'); addShake(5);
+  spawn(boss.x, boss.y+boss.h/2, 8, '#FF4444', 3, 18);
+  if (boss.hp <= 0) {
+    boss.dead = true; boss.deathT = 0;
+    P.score += 1000 + world * 500;
+    sfx('bossdie'); addShake(20);
+    spawn(boss.x, boss.y+boss.h/2, 30, '#FFD700', 6, 50);
+  }
+}
+
+// --- Conquistador Boss: charges, throws swords ---
+function updateBossConquistador(aL, aR) {
+  const g = lvl.goal;
+  // Walk toward player
+  boss.x += boss.dir * (0.8 + world*0.15);
+  boss.x = clamp(boss.x, aL, aR);
+  boss.y = g.y - boss.h;
+  // Charge attack every 120 frames
+  if (boss.timer % (130 - world*5) === 0) {
+    boss.vx = boss.dir * (4 + world*0.5);
+    boss.phase = 1; // charging
+  }
+  if (boss.phase === 1) {
+    boss.x += boss.vx;
+    boss.vx *= 0.96;
+    if (Math.abs(boss.vx) < 0.5) boss.phase = 0;
+    boss.x = clamp(boss.x, aL, aR);
+  }
+  // Throw sword projectile every 90 frames
+  if (boss.timer % (100 - world*4) === 0) {
+    boss.attacks.push({
+      x: boss.x, y: boss.y + boss.h*0.3,
+      vx: boss.dir * (3 + world*0.3), vy: -1.5,
+      w: 10, h: 6, life: 120, type: 'sword'
+    });
+    sfx('slash');
+  }
+}
+
+// --- Golem Boss: stomps, creates quakes, throws boulders ---
+function updateBossGolem(aL, aR) {
+  const g = lvl.goal;
+  boss.y = g.y - boss.h;
+  // Slow walk
+  boss.x += boss.dir * (0.4 + world*0.08);
+  boss.x = clamp(boss.x, aL, aR);
+  // Stomp/quake every 100 frames
+  if (boss.timer % (110 - world*4) === 0) {
+    boss.slamT = 20; boss.quakeT = 30;
+    addShake(10); sfx('bouldercrash');
+    // Quake damages if player on ground near boss
+    if (P.ground && Math.abs(P.x+P.w/2-boss.x) < 100) {
+      hurtPlayer(false);
+    }
+  }
+  if (boss.slamT > 0) boss.slamT--;
+  if (boss.quakeT > 0) boss.quakeT--;
+  // Throw boulder every 80 frames
+  if (boss.timer % (90 - world*3) === 0) {
+    boss.attacks.push({
+      x: boss.x, y: boss.y + 10,
+      vx: boss.dir * (2 + world*0.2), vy: -3,
+      w: 16, h: 14, life: 150, type: 'boulder'
+    });
+    sfx('rockwarn');
+  }
+}
+
+// --- Helicopter Boss: flies overhead, drops tear gas, shoots ---
+function updateBossHelicopter() {
+  // Fly side to side above the arena
+  const cx = VW/2, amp = VW/2 - 40;
+  boss.x = cx + Math.sin(boss.timer * 0.015 + world) * amp;
+  boss.y = boss.heliY + Math.sin(boss.timer * 0.03) * 15;
+  // Helicopter chop sound
+  if (boss.timer % 15 === 0) sfx('helicopter');
+  // Drop tear gas canister every 70 frames
+  if (boss.timer % (80 - world*3) === 0) {
+    boss.attacks.push({
+      x: boss.x, y: boss.y + boss.h,
+      vx: 0, vy: 1.5,
+      w: 8, h: 8, life: 200, type: 'teargas'
+    });
+    sfx('teargas');
+  }
+  // Shoot bullets every 50 frames
+  if (boss.timer % (60 - world*2) === 0) {
+    const dx = P.x+P.w/2 - boss.x, dy = P.y+P.h/2 - boss.y;
+    const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    boss.attacks.push({
+      x: boss.x, y: boss.y + boss.h,
+      vx: (dx/dist)*4, vy: (dy/dist)*4,
+      w: 4, h: 4, life: 90, type: 'bullet'
+    });
+    sfx('rockhit');
+  }
+}
+
+function drawBoss() {
+  if (!boss) return;
+  const[sx,sy]=w2s(boss.x, boss.y);
+  if (boss.dead) {
+    // Death explosion animation
+    X.globalAlpha = Math.max(0, 1 - boss.deathT/120);
+    const boom = boss.deathT * 0.5;
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4+boss.deathT*0.05;
+      X.fillStyle=`hsl(${(boss.deathT*5+i*45)%360},100%,60%)`;
+      X.beginPath();X.arc(sx+Math.cos(a)*boom*ZOOM,sy+boss.h/2*ZOOM+Math.sin(a)*boom*ZOOM,(6-boss.deathT*0.04)*ZOOM,0,Math.PI*2);X.fill();
+    }
+    X.globalAlpha=1;
+    // Victory text
+    if (boss.deathT > 40) {
+      X.font=`bold ${20*ZOOM}px sans-serif`;X.textAlign='center';
+      X.fillStyle='#FFD700';X.fillText('VICTORY!',sx,sy-20*ZOOM);
+      X.font=`${12*ZOOM}px sans-serif`;X.fillStyle='#FFF';
+      X.fillText(`+${1000+world*500}`,sx,sy);
+    }
+    return;
+  }
+  // Flash when hit
+  if (boss.flashT > 0 && frame%4<2) return;
+
+  X.save();
+  X.translate(sx, sy);
+  X.scale(ZOOM, ZOOM);
+
+  switch(boss.type) {
+    case 'conquistador': drawBossConquistador(); break;
+    case 'golem': drawBossGolem(); break;
+    case 'helicopter': drawBossHelicopter(); break;
+  }
+  X.restore();
+
+  // HP bar
+  const barW = 80*ZOOM, barH = 6*ZOOM;
+  const barX = sx - barW/2, barY = sy - 12*ZOOM;
+  X.fillStyle='rgba(0,0,0,0.6)';X.fillRect(barX-1,barY-1,barW+2,barH+2);
+  X.fillStyle='#440000';X.fillRect(barX,barY,barW,barH);
+  X.fillStyle='#FF2222';X.fillRect(barX,barY,barW*(boss.hp/boss.maxHp),barH);
+  // Boss name
+  X.font=`bold ${10*ZOOM}px sans-serif`;X.textAlign='center';X.fillStyle='#FF8888';
+  X.fillText(BOSS_NAMES[boss.type],sx,barY-4*ZOOM);
+
+  // Taunt bubble
+  if (boss.tauntT > 0) {
+    const bubW = 140*ZOOM, bubH = 28*ZOOM;
+    const bubX = sx - bubW/2, bubY = barY - bubH - 12*ZOOM;
+    X.fillStyle='rgba(60,0,0,0.85)';X.fillRect(bubX,bubY,bubW,bubH);
+    X.strokeStyle='#FF4444';X.lineWidth=ZOOM;X.strokeRect(bubX,bubY,bubW,bubH);
+    X.font=`${8*ZOOM}px sans-serif`;X.textAlign='center';X.fillStyle='#FFF';
+    const words = wrapText(boss.taunt, 22);
+    words.forEach((line,i) => X.fillText(line, sx, bubY+10*ZOOM+i*10*ZOOM));
+  }
+
+  // Draw projectiles
+  for (const a of boss.attacks) {
+    const[ax,ay]=w2s(a.x,a.y);
+    switch(a.type) {
+      case 'sword':
+        X.save();X.translate(ax,ay);X.rotate(Math.atan2(a.vy,a.vx));
+        X.fillStyle='#CCC';X.fillRect(-5*ZOOM,-1.5*ZOOM,10*ZOOM,3*ZOOM);
+        X.fillStyle='#888';X.fillRect(-7*ZOOM,-3*ZOOM,4*ZOOM,6*ZOOM);
+        X.restore();break;
+      case 'boulder':
+        X.fillStyle='#666';X.beginPath();X.arc(ax,ay,a.w/2*ZOOM,0,Math.PI*2);X.fill();
+        X.fillStyle='#888';X.beginPath();X.arc(ax-ZOOM,ay-ZOOM,a.w/3*ZOOM,0,Math.PI*2);X.fill();break;
+      case 'teargas':
+        X.fillStyle=`rgba(160,220,80,${0.4+Math.sin(frame*0.1)*0.2})`;
+        X.beginPath();X.arc(ax,ay,(a.w/2+a.life*0.02)*ZOOM,0,Math.PI*2);X.fill();
+        X.fillStyle='rgba(200,255,100,0.3)';
+        X.beginPath();X.arc(ax,ay,(a.w+a.life*0.03)*ZOOM,0,Math.PI*2);X.fill();break;
+      case 'bullet':
+        X.fillStyle='#FF0';X.fillRect(ax-2*ZOOM,ay-2*ZOOM,4*ZOOM,4*ZOOM);break;
+    }
+  }
+}
+
+function drawBossConquistador() {
+  const d = boss.dir;
+  // Giant armored conquistador
+  // Legs
+  const la=Math.sin(boss.anim)*0.4;
+  X.fillStyle='#3A3A3A';
+  X.save();X.translate(-6*d,boss.h-6);X.rotate(la);X.fillRect(-2.5,0,5,10);X.restore();
+  X.save();X.translate(4*d,boss.h-6);X.rotate(-la);X.fillRect(-2.5,0,5,10);X.restore();
+  // Armored body
+  X.fillStyle='#555';X.fillRect(-12,boss.h*0.2,24,boss.h*0.5);
+  // Breastplate
+  X.fillStyle='#777';X.fillRect(-10,boss.h*0.22,20,boss.h*0.2);
+  X.fillStyle='#998800';X.fillRect(-2,boss.h*0.25,4,boss.h*0.15); // gold cross
+  X.fillRect(-6,boss.h*0.30,12,3);
+  // Cape (red, flowing)
+  X.fillStyle='#8B0000';
+  X.beginPath();X.moveTo(-10*d,boss.h*0.25);X.lineTo(-16*d,boss.h*0.7+Math.sin(boss.anim)*3);
+  X.lineTo(-8*d,boss.h*0.6);X.closePath();X.fill();
+  // Arms with sword
+  X.fillStyle='#555';
+  X.save();X.translate(10*d,boss.h*0.3);X.rotate(boss.phase===1?-0.8*d:Math.sin(boss.anim*2)*0.3*d);
+  X.fillRect(0,0,4,14);
+  // Giant sword
+  X.fillStyle='#CCC';X.fillRect(1,13,2,18);
+  X.fillStyle='#998800';X.fillRect(-1,11,6,3);
+  X.restore();
+  // Head (skull face)
+  X.fillStyle='#4A5A3A';X.beginPath();X.arc(0,boss.h*0.12,8,0,Math.PI*2);X.fill();
+  // Glowing red eyes
+  X.fillStyle='#FF0000';X.fillRect(2*d,boss.h*0.10,2.5,2);X.fillRect(-4*d,boss.h*0.10,2.5,2);
+  // Morion helmet (bigger)
+  X.fillStyle='#555';
+  X.beginPath();X.moveTo(-10,boss.h*0.06);X.lineTo(10,boss.h*0.06);
+  X.lineTo(8,boss.h*0.0);X.lineTo(3,-6);X.lineTo(0,-8);X.lineTo(-3,-6);X.lineTo(-8,boss.h*0.0);
+  X.closePath();X.fill();
+  X.fillStyle='#666';X.fillRect(-1,-9,2,8); // crest
+  // Plume (red feather)
+  X.fillStyle='#CC0000';
+  X.beginPath();X.moveTo(0,-8);X.quadraticCurveTo(8*d,-16,12*d,-8+Math.sin(boss.anim)*3);X.lineTo(4*d,-6);X.closePath();X.fill();
+}
+
+function drawBossGolem() {
+  const bob = boss.slamT > 0 ? Math.sin(boss.slamT)*3 : 0;
+  // Massive stone body
+  X.fillStyle='#5A5A5A';
+  // Legs (thick pillars)
+  X.fillRect(-14,boss.h-10,10,12);X.fillRect(4,boss.h-10,10,12);
+  // Torso (rough stone)
+  X.beginPath();X.moveTo(-18,boss.h*0.6+bob);X.lineTo(-16,boss.h*0.15);
+  X.lineTo(-8,boss.h*0.05);X.lineTo(8,boss.h*0.05);
+  X.lineTo(16,boss.h*0.15);X.lineTo(18,boss.h*0.6+bob);X.closePath();X.fill();
+  // Cracks
+  X.strokeStyle='#444';X.lineWidth=1;
+  X.beginPath();X.moveTo(-5,boss.h*0.2);X.lineTo(-2,boss.h*0.45);X.lineTo(3,boss.h*0.5);X.stroke();
+  X.beginPath();X.moveTo(8,boss.h*0.15);X.lineTo(6,boss.h*0.35);X.stroke();
+  // Arms (stone clubs)
+  const armA = boss.slamT > 10 ? -1.2 : Math.sin(boss.anim)*0.3;
+  X.fillStyle='#6A6A6A';
+  X.save();X.translate(-17,boss.h*0.25);X.rotate(armA);X.fillRect(-4,0,8,20);X.restore();
+  X.save();X.translate(17,boss.h*0.25);X.rotate(-armA);X.fillRect(-4,0,8,20);X.restore();
+  // Head (rough boulder)
+  X.fillStyle='#5A5A5A';X.beginPath();X.arc(0,boss.h*0.08,10,0,Math.PI*2);X.fill();
+  // Ancient Guanche symbols carved into body
+  X.strokeStyle='#889966';X.lineWidth=1.5;
+  X.beginPath();X.arc(0,boss.h*0.35,6,0,Math.PI*2);X.stroke(); // spiral
+  X.beginPath();X.moveTo(-3,boss.h*0.25);X.lineTo(0,boss.h*0.18);X.lineTo(3,boss.h*0.25);X.stroke();
+  // Glowing eyes
+  X.fillStyle=`rgb(${200+Math.sin(boss.anim*3)*55|0},${100+Math.sin(boss.anim*2)*50|0},0)`;
+  X.fillRect(-5,boss.h*0.05,3,3);X.fillRect(2,boss.h*0.05,3,3);
+  // Quake waves
+  if (boss.quakeT > 0) {
+    X.strokeStyle=`rgba(255,200,100,${boss.quakeT/30})`;X.lineWidth=2;
+    const r = (30-boss.quakeT)*3;
+    X.beginPath();X.ellipse(0,boss.h+bob,r,r*0.3,0,0,Math.PI*2);X.stroke();
+  }
+}
+
+function drawBossHelicopter() {
+  // Police helicopter
+  // Body
+  X.fillStyle='#2244AA';
+  X.beginPath();X.ellipse(0,boss.h/2,22,12,0,0,Math.PI*2);X.fill();
+  // Cockpit glass
+  X.fillStyle='rgba(150,200,255,0.5)';
+  X.beginPath();X.ellipse(12*boss.dir,boss.h/2-3,8,7,0.2*boss.dir,0,Math.PI*2);X.fill();
+  // Tail boom
+  X.fillStyle='#1A3388';X.fillRect(-22*boss.dir,boss.h/2-2,18*-boss.dir,4);
+  // Tail rotor
+  X.fillStyle='#AAA';
+  X.fillRect(-26*boss.dir,boss.h/2-6,2,12);
+  // Main rotor (spinning)
+  X.fillStyle=`rgba(150,150,150,${0.3+Math.sin(frame*2)*0.2})`;
+  const rotA=frame*0.5;
+  X.save();X.translate(0,boss.h/2-12);X.rotate(rotA);
+  X.fillRect(-28,-1.5,56,3);X.restore();
+  X.save();X.translate(0,boss.h/2-12);X.rotate(rotA+Math.PI/2);
+  X.fillRect(-28,-1.5,56,3);X.restore();
+  // POLICIA text
+  X.fillStyle='#FFF';X.font='bold 5px sans-serif';X.textAlign='center';
+  X.fillText('POLICIA',0,boss.h/2+2);
+  // Searchlight beam
+  if (frame%60<40) {
+    X.fillStyle='rgba(255,255,200,0.06)';
+    X.beginPath();X.moveTo(-4,boss.h);X.lineTo(-30,boss.h+80);X.lineTo(30,boss.h+80);X.lineTo(4,boss.h);X.closePath();X.fill();
+  }
+  // Skids
+  X.fillStyle='#333';X.fillRect(-16,boss.h-2,32,2);
+  X.fillRect(-18,boss.h,2,4);X.fillRect(16,boss.h,2,4);
+}
+
 // === STATE TRANSITIONS ===
-function completeLevel(){state=ST.COMPLETE;stTimer=0;sfx('win');spawn(P.x+P.w/2,P.y,30,'#FFD700',5,40);saveProgress();}
+function completeLevel(){state=ST.COMPLETE;stTimer=0;sfx('win');spawn(P.x+P.w/2,P.y,30,'#FFD700',5,40);saveProgress();boss=null;}
 function nextLevel(){
+  boss=null;
   if(level<4){level++;loadLevel();state=ST.PLAY;playMusic(world);}
   else if(world<8){world++;level=1;state=ST.INTRO;stTimer=0;stopMusic();}
   else{saveProgress();state=ST.TITLE;stopMusic();}
@@ -2148,7 +2630,7 @@ function startGame(cont){
   else{world=1;level=1;}
   P.lives=3;P.score=0;P.shield=false;P.inv=false;P.dead=false;
   P.weapon=null;P.water=0;P.banana=0;P.weedT=0;P.papasT=0;P.tunaT=0;P.atk=0;P.atkCd=0;
-  state=ST.INTRO;stTimer=0;
+  boss=null;state=ST.INTRO;stTimer=0;
 }
 function saveProgress(){
   if(P.score>hiScore)hiScore=P.score;
@@ -2167,9 +2649,15 @@ function update(){
     case ST.PLAY:
       if(inp.start&&stTimer>10){state=ST.PAUSE;stTimer=0;if(curTrack)curTrack.volume=0.1;break;}
       updatePlayer();updateEnemies();updateGoats();updateDogs();updatePlatforms();updateHazards();checkCollectibles();updateTimer();updateCamera();updateParticles();updateShake();break;
+    case ST.BOSS:
+      if(inp.start&&stTimer>10){state=ST.PAUSE;stTimer=0;if(curTrack)curTrack.volume=0.1;break;}
+      updatePlayer();updateBoss();updateCamera();updateParticles();updateShake();break;
     case ST.COMPLETE:updateParticles();if(stTimer>90&&(inp.jp||inp.start))nextLevel();break;
     case ST.OVER:updateParticles();if(stTimer>90&&(inp.jp||inp.start))startGame(false);break;
-    case ST.PAUSE:if(inp.start&&stTimer>10){state=ST.PLAY;stTimer=0;if(curTrack)curTrack.volume=0.35;}break;
+    case ST.PAUSE:
+      if(inp.start&&stTimer>10){
+        const prev=boss?ST.BOSS:ST.PLAY;state=prev;stTimer=0;if(curTrack)curTrack.volume=0.35;
+      }break;
   }
 }
 
@@ -2188,9 +2676,9 @@ function render(){
   switch(state){
     case ST.TITLE:drawTitle();break;
     case ST.INTRO:drawIntro();break;
-    case ST.PLAY:case ST.PAUSE:case ST.COMPLETE:case ST.OVER:
+    case ST.PLAY:case ST.BOSS:case ST.PAUSE:case ST.COMPLETE:case ST.OVER:
       X.save();X.translate(shake.x*ZOOM,shake.y*ZOOM);
-      drawBg();drawWalls();drawAlcoves();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawGoats();drawDogs();drawHazards();drawPlayer();drawLava();drawParticles();
+      drawBg();drawWalls();drawAlcoves();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawGoats();drawDogs();drawHazards();drawPlayer();drawBoss();drawLava();drawParticles();
       X.restore();drawHUD();
       // Psychedelic overlay glow during trip
       if(tripping){
