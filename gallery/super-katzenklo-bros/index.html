@@ -1504,13 +1504,11 @@ function completeLevel() {
     }
 
     currentLevel = LEVELS[currentLevelIdx];
-    generateWorld();
+    generateWorld(); // generateWorld() clears all arrays internally
     cat.x = 100; cat.y = groundY - 30; cat.vx = 0; cat.vy = 0;
     camera = { x: 0, y: groundY - vh() * 0.88 };
     particles = []; memeTexts = []; nyanTrail = [];
     projectiles = []; powerupItems = [];
-    bombs = []; dogs = []; bombPickups = []; eagles = [];
-    clotheslines = []; omas = [];
     showTransition(levelTime);
 }
 
