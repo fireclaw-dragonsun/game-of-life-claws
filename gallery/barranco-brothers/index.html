@@ -396,6 +396,7 @@ function genLevel(w, l) {
   let curY = startY, prevPx = VW/2;
   let nextCaveY = startY - 300 - rng() * 200;
   let nextNpcY = startY - 200 - rng() * 300;
+  const usedPlatY = new Set(); // track platforms with NPCs — one NPC per platform, always
 
   while (curY > 200) {
     const gap = Math.min(50 + rng() * 25 + d * 0.3, 72);
@@ -422,7 +423,7 @@ function genLevel(w, l) {
     ps.push(p);
 
     // Cave placement (on wider solid platforms near walls)
-    if (curY < nextCaveY && type === 'solid' && pw > 60) {
+    if (curY < nextCaveY && type === 'solid' && pw > 60 && !usedPlatY.has(curY)) {
       const side = nx < VW/2 ? 'left' : 'right';
       const hippieX = side === 'left' ? nx + 12 : nx + pw - 16;
       const offers = rng() < 0.5 ? 'machete' : 'weed';
@@ -433,6 +434,7 @@ function genLevel(w, l) {
         quote: QUOTES[Math.floor(rng() * QUOTES.length)],
         offers, cost, traded: false, side
       });
+      usedPlatY.add(curY);
       nextCaveY = curY - 350 - rng() * 250;
     }
 
@@ -461,8 +463,8 @@ function genLevel(w, l) {
       cs.push({ type: types[Math.floor(rng()*types.length)], x: nx+pw/2, y: curY-20, got:false });
     }
 
-    // NPC vendors (abuela + cook) on wider solid platforms, not too close to caves
-    if (curY < nextNpcY && type === 'solid' && pw > 62 && Math.abs(curY - nextCaveY) > 100) {
+    // NPC vendors (abuela + cook) — never on a platform that already has someone
+    if (curY < nextNpcY && type === 'solid' && pw > 62 && !usedPlatY.has(curY)) {
       const npcType = rng() < 0.5 ? 'abuela' : 'cook';
       const npcX = nx + 8 + rng() * (pw - 24);
       const quotes = npcType === 'abuela' ? ABUELA_Q : COOK_Q;
@@ -473,6 +475,7 @@ function genLevel(w, l) {
         cost: npcType === 'abuela' ? 'banana' : 'water',
         traded: false, face: rng() < 0.5 ? 1 : -1
       });
+      usedPlatY.add(curY);
       nextNpcY = curY - 400 - rng() * 300;
     }
 
@@ -1035,22 +1038,25 @@ function drawBubble(cv, hsx, hsy) {
   const bx = hsx - bubW/2;
   const by = hsy - 28*ZOOM - bubH;
 
-  // Bubble bg
-  X.fillStyle = 'rgba(255,250,240,0.92)';
-  X.beginPath();
-  X.roundRect(bx, by, bubW, bubH, 6);
-  X.fill();
-  X.strokeStyle = 'rgba(0,0,0,0.2)';
-  X.lineWidth = 1;
-  X.stroke();
+  // Shadow
+  X.fillStyle = 'rgba(0,0,0,0.18)';
+  X.beginPath(); X.roundRect(bx+3, by+3, bubW, bubH, 6); X.fill();
+  // Bubble bg gradient
+  const bgGrd = X.createLinearGradient(bx, by, bx, by+bubH);
+  bgGrd.addColorStop(0, 'rgba(255,252,245,0.95)'); bgGrd.addColorStop(1, 'rgba(245,235,220,0.95)');
+  X.fillStyle = bgGrd;
+  X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.fill();
+  // Accent bar (hippie = rainbow cycling)
+  const hue = (frame * 2 + (cv.hippieX||0)) % 360;
+  X.fillStyle = cv.traded ? '#999' : `hsl(${hue},70%,55%)`;
+  X.beginPath(); X.roundRect(bx, by, 4, bubH, [6,0,0,6]); X.fill();
+  // Border
+  X.strokeStyle = 'rgba(0,0,0,0.12)'; X.lineWidth = 1;
+  X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.stroke();
 
   // Pointer
-  X.fillStyle = 'rgba(255,250,240,0.92)';
-  X.beginPath();
-  X.moveTo(hsx-5, by+bubH);
-  X.lineTo(hsx, by+bubH+6);
-  X.lineTo(hsx+5, by+bubH);
-  X.fill();
+  X.fillStyle = 'rgba(245,235,220,0.95)';
+  X.beginPath(); X.moveTo(hsx-5, by+bubH); X.lineTo(hsx, by+bubH+7); X.lineTo(hsx+5, by+bubH); X.fill();
 
   // Text
   X.textAlign = 'left';
@@ -1065,7 +1071,7 @@ function drawBubble(cv, hsx, hsy) {
       X.font = `${fs}px sans-serif`;
     } else {
       X.fillStyle = '#443322';
-      X.font = `${fs}px sans-serif`;
+      X.font = `italic ${fs}px sans-serif`;
     }
     X.fillText(lineText, bx + 8, by + 12 + i * lh);
   }
@@ -1229,12 +1235,28 @@ function drawNpcBubble(n, sx, sy) {
   const bx = sx - bubW / 2;
   const by = sy - 42 * ZOOM - bubH;
 
-  X.fillStyle = n.type === 'abuela' ? 'rgba(255,248,230,0.92)' : 'rgba(230,245,255,0.92)';
+  // Shadow
+  X.fillStyle = 'rgba(0,0,0,0.15)';
+  X.beginPath(); X.roundRect(bx+3, by+3, bubW, bubH, 6); X.fill();
+  // Gradient bg (warm for abuela, cool for cook)
+  const nGrd = X.createLinearGradient(bx, by, bx, by+bubH);
+  if (n.type === 'abuela') {
+    nGrd.addColorStop(0, 'rgba(255,250,235,0.95)'); nGrd.addColorStop(1, 'rgba(250,235,210,0.95)');
+  } else {
+    nGrd.addColorStop(0, 'rgba(235,248,255,0.95)'); nGrd.addColorStop(1, 'rgba(215,235,250,0.95)');
+  }
+  X.fillStyle = nGrd;
   X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.fill();
-  X.strokeStyle = 'rgba(0,0,0,0.2)'; X.lineWidth = 1; X.stroke();
+  // Accent bar (brown for abuela, blue for cook)
+  X.fillStyle = n.traded ? '#999' : (n.type === 'abuela' ? '#CC6633' : '#2266AA');
+  X.beginPath(); X.roundRect(bx, by, 4, bubH, [6,0,0,6]); X.fill();
+  // Border
+  X.strokeStyle = 'rgba(0,0,0,0.1)'; X.lineWidth = 1;
+  X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.stroke();
 
-  X.fillStyle = n.type === 'abuela' ? 'rgba(255,248,230,0.92)' : 'rgba(230,245,255,0.92)';
-  X.beginPath(); X.moveTo(sx-5, by+bubH); X.lineTo(sx, by+bubH+6); X.lineTo(sx+5, by+bubH); X.fill();
+  // Pointer
+  X.fillStyle = n.type === 'abuela' ? 'rgba(250,235,210,0.95)' : 'rgba(215,235,250,0.95)';
+  X.beginPath(); X.moveTo(sx-5, by+bubH); X.lineTo(sx, by+bubH+7); X.lineTo(sx+5, by+bubH); X.fill();
 
   X.textAlign = 'left';
   for (let i = 0; i < lines.length; i++) {
@@ -1247,9 +1269,9 @@ function drawNpcBubble(n, sx, sy) {
     } else if (lt.startsWith('Buen') || lt.startsWith('Enjoy')) {
       X.fillStyle = '#888'; X.font = `italic ${fs}px sans-serif`;
     } else {
-      X.fillStyle = '#443322'; X.font = `${fs}px sans-serif`;
+      X.fillStyle = '#443322'; X.font = `italic ${fs}px sans-serif`;
     }
-    X.fillText(lt, bx + 8, by + 12 + i * lh);
+    X.fillText(lt, bx + 10, by + 12 + i * lh);
   }
   X.textAlign = 'left';
 }
