@@ -1028,7 +1028,7 @@ function drawBubble(cv, hsx, hsy) {
     const hasItem = cv.cost === 'water' ? P.water > 0 : P.banana > 0;
     lines.push('');
     lines.push(`Trade: ${costName} -> ${offerName}`);
-    lines.push(hasItem ? 'Press ATK to trade!' : `(need a ${costName})`);
+    lines.push(hasItem ? 'Press X to trade!' : `(need a ${costName})`);
   } else {
     lines.push(''); lines.push('Peace, brother. Safe travels.');
   }
@@ -1049,7 +1049,7 @@ function drawBubble(cv, hsx, hsy) {
   // Accent bar (hippie = rainbow cycling)
   const hue = (frame * 2 + (cv.hippieX||0)) % 360;
   X.fillStyle = cv.traded ? '#999' : `hsl(${hue},70%,55%)`;
-  X.beginPath(); X.roundRect(bx, by, 4, bubH, [6,0,0,6]); X.fill();
+  X.fillRect(bx, by+4, 4, bubH-8); X.beginPath(); X.arc(bx+2,by+4,2,0,Math.PI*2); X.arc(bx+2,by+bubH-4,2,0,Math.PI*2); X.fill();
   // Border
   X.strokeStyle = 'rgba(0,0,0,0.12)'; X.lineWidth = 1;
   X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.stroke();
@@ -1063,7 +1063,7 @@ function drawBubble(cv, hsx, hsy) {
   X.fillStyle = '#443322';
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i];
-    if (lineText.startsWith('Press ATK') || lineText.startsWith('Trade:')) {
+    if (lineText.startsWith('Press X') || lineText.startsWith('Trade:')) {
       X.fillStyle = lineText.startsWith('Press') ? '#228B22' : '#8B4513';
       X.font = `bold ${fs}px sans-serif`;
     } else if (lineText.startsWith('(need')) {
@@ -1224,7 +1224,7 @@ function drawNpcBubble(n, sx, sy) {
     const hasItem = n.cost === 'banana' ? P.banana > 0 : P.water > 0;
     lines.push('');
     lines.push(`Trade: ${costName} \u2192 ${itemName}`);
-    lines.push(hasItem ? 'Press ATK to buy!' : `(need a ${costName})`);
+    lines.push(hasItem ? 'Press X to buy!' : `(need a ${costName})`);
   } else {
     lines.push('');
     lines.push(n.type === 'abuela' ? 'Buen provecho, hijo!' : 'Enjoy, amigo!');
@@ -1249,7 +1249,7 @@ function drawNpcBubble(n, sx, sy) {
   X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.fill();
   // Accent bar (brown for abuela, blue for cook)
   X.fillStyle = n.traded ? '#999' : (n.type === 'abuela' ? '#CC6633' : '#2266AA');
-  X.beginPath(); X.roundRect(bx, by, 4, bubH, [6,0,0,6]); X.fill();
+  X.fillRect(bx, by+4, 4, bubH-8); X.beginPath(); X.arc(bx+2,by+4,2,0,Math.PI*2); X.arc(bx+2,by+bubH-4,2,0,Math.PI*2); X.fill();
   // Border
   X.strokeStyle = 'rgba(0,0,0,0.1)'; X.lineWidth = 1;
   X.beginPath(); X.roundRect(bx, by, bubW, bubH, 6); X.stroke();
@@ -1261,7 +1261,7 @@ function drawNpcBubble(n, sx, sy) {
   X.textAlign = 'left';
   for (let i = 0; i < lines.length; i++) {
     const lt = lines[i];
-    if (lt.startsWith('Press ATK') || lt.startsWith('Trade:')) {
+    if (lt.startsWith('Press X') || lt.startsWith('Trade:')) {
       X.fillStyle = lt.startsWith('Press') ? '#228B22' : '#8B4513';
       X.font = `bold ${fs}px sans-serif`;
     } else if (lt.startsWith('(need')) {
@@ -1705,7 +1705,7 @@ function drawHelp() {
   y = heading('\u2328 Controls', y); y += lh * 0.3;
   y = row('\u2190 \u2192', 'Move left / right', y);
   y = row('SPACE', 'Jump (hold = higher)', y);
-  y = row('Z / X', 'Attack / Trade', y);
+  y = row('X / Z', 'Attack / Trade', y);
   y = row('ESC', 'Pause game', y);
   y = row('H', 'Toggle this help', y);
   y += lh * 0.3;
