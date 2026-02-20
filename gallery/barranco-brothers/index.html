@@ -149,18 +149,34 @@ const PAPAS_DUR = 480; // 8 seconds speed boost
 const TUNA_DUR = 600;  // 10 seconds shield + power
 
 // === GAME STATE ===
-const ST = { TITLE:0, INTRO:1, PLAY:2, COMPLETE:3, OVER:4, PAUSE:5, BOSS:6 };
+const ST = { TITLE:0, CHARSEL:7, INTRO:1, PLAY:2, COMPLETE:3, OVER:4, PAUSE:5, BOSS:6 };
 let state = ST.TITLE;
 let world = 1, level = 1;
 let stTimer = 0, frame = 0;
 let lvl = null;
+
+// === CHARACTER DEFINITIONS ===
+const CHARS = [
+  { id:'warrior', name:'Ancient Warrior', desc:'Guanche spirit. Tough and strong.',
+    color:'#7A5533', skin:'#C49A6C', hair:'#1A1A1A', accent:'#CC2200' },
+  { id:'hippie', name:'Happy Hippie', desc:'Peace & love. Extra weed duration.',
+    color:'#8B6FC0', skin:'#E8C8A0', hair:'#AA7733', accent:'#44CC44' },
+  { id:'climber', name:'Crazy Climber', desc:'Wild energy. Faster + higher jumps.',
+    color:'#CC4444', skin:'#D4A878', hair:'#553322', accent:'#FF8800' },
+  { id:'susy', name:'Spider Susy', desc:'Rope master. Shoot ropes to walls!',
+    color:'#2288CC', skin:'#E0B090', hair:'#1A0A2A', accent:'#FF44AA' },
+];
+let charIdx = 0; // selected character index
+let charId = 'warrior'; // active character id
 
 // Player
 const P = { x:0,y:0,vx:0,vy:0,w:PW,h:PH,ground:false,jump:false,face:1,wf:0,
   lives:3,score:0,shield:false,shieldT:0,inv:false,invT:0,dead:false,
   atk:0, atkCd:0, weapon:null, weedT:0,
   papasT:0, tunaT:0,
-  water:0, banana:0 };
+  water:0, banana:0,
+  // Susy rope state
+  rope:null, wallStick:false, wallStickSide:0 };
 const cam = { y:0 };
 const lava = { y:9999, spd:0, active:false };
 let lvlTimer = 0; // frames remaining
@@ -201,7 +217,7 @@ let showHelp = false;
 // === INPUT ===
 const keys = {};
 const inp = { l:false, r:false, j:false, jp:false, a:false, ap:false, start:false };
-let prevJ = false, prevA = false;
+let prevJ = false, prevA = false, prevSel = false;
 const tch = { l:false, r:false, j:false, a:false };
 
 document.addEventListener('keydown', e => { keys[e.code]=true; if(['Space','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault(); });
@@ -387,6 +403,15 @@ function sfx(type) {
       o.type='sine'; o.frequency.setValueAtTime(800,t); o.frequency.linearRampToValueAtTime(200,t+.3);
       g.gain.setValueAtTime(.1,t); g.gain.exponentialRampToValueAtTime(.001,t+.4);
       o.start(t); o.stop(t+.4); break;
+    case 'rope':
+      o.type='sine'; o.frequency.setValueAtTime(600,t); o.frequency.linearRampToValueAtTime(1200,t+.08);
+      o.frequency.linearRampToValueAtTime(800,t+.15);
+      g.gain.setValueAtTime(.1,t); g.gain.exponentialRampToValueAtTime(.001,t+.18);
+      o.start(t); o.stop(t+.18); break;
+    case 'ropeclimb':
+      o.type='triangle'; o.frequency.setValueAtTime(400,t); o.frequency.linearRampToValueAtTime(500,t+.06);
+      g.gain.setValueAtTime(.05,t); g.gain.exponentialRampToValueAtTime(.001,t+.08);
+      o.start(t); o.stop(t+.08); break;
     default:
       o.type='sine'; o.frequency.value=440;
       g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.1);
@@ -633,6 +658,7 @@ function loadLevel() {
   P.vx = 0; P.vy = 0; P.ground = false; P.jump = false;
   P.face = 1; P.wf = 0; P.dead = false;
   P.inv = false; P.invT = 0; P.atk = 0; P.atkCd = 0;
+  P.rope = null; P.wallStick = false; P.wallStickSide = 0;
   // Keep weapon and inventory across levels within a run
   // P.weapon, P.water, P.banana, P.weedT persist
 
@@ -652,7 +678,9 @@ function updatePlayer() {
   const smoking = P.weedT >= WEED_DUR - WEED_SMOKE_PHASE;
   let spdMult = tripping ? 1.5 : 1;
   let jumpMult = tripping ? 1.3 : 1;
-  if (P.papasT > 0) { spdMult *= 1.2; jumpMult *= 1.1; } // papas power
+  if (P.papasT > 0) { spdMult *= 1.2; jumpMult *= 1.1; }
+  // Character bonuses
+  if (charId === 'climber') { spdMult *= 1.2; jumpMult *= 1.2; }
 
   // Horizontal
   if (inp.l) { P.vx = -PSPD * spdMult; P.face = -1; }
@@ -660,9 +688,22 @@ function updatePlayer() {
   else P.vx *= 0.7;
   if (Math.abs(P.vx) < 0.1) P.vx = 0;
 
-  // Jump
-  if (inp.jp && P.ground) {
-    P.vy = JUMP_V * jumpMult;
+  // Jump (also from wall stick and rope)
+  const canJump = P.ground || P.wallStick || P.rope;
+  if (inp.jp && canJump) {
+    if (P.rope) {
+      // Jump off rope
+      P.vy = JUMP_V * jumpMult * 0.8;
+      P.vx = P.wallStickSide * 3; // push away from wall
+      P.rope = null;
+    } else if (P.wallStick) {
+      // Wall jump (Susy)
+      P.vy = JUMP_V * jumpMult * 0.85;
+      P.vx = P.wallStickSide * 4;
+      P.wallStick = false;
+    } else {
+      P.vy = JUMP_V * jumpMult;
+    }
     P.ground = false; P.jump = true;
     sfx('jump');
   }
@@ -678,14 +719,14 @@ function updatePlayer() {
       if (Math.abs((P.x+P.w/2) - cv.hippieX) < 30 && Math.abs((P.y+P.h) - cv.hippieY) < 40) {
         if (cv.cost === 'water' && P.water > 0) {
           P.water--;
-          if (cv.offers === 'weed') { P.weedT = WEED_DUR; sfx('weed'); }
+          if (cv.offers === 'weed') { P.weedT = charId==='hippie'?Math.floor(WEED_DUR*1.5):WEED_DUR; sfx('weed'); }
           else { P.weapon = 'machete'; sfx('trade'); }
           cv.traded = true; traded = true;
           P.score += 300;
           spawn(cv.hippieX, cv.hippieY-10, 12, '#FF44FF', 3, 25);
         } else if (cv.cost === 'banana' && P.banana > 0) {
           P.banana--;
-          if (cv.offers === 'weed') { P.weedT = WEED_DUR; sfx('weed'); }
+          if (cv.offers === 'weed') { P.weedT = charId==='hippie'?Math.floor(WEED_DUR*1.5):WEED_DUR; sfx('weed'); }
           else { P.weapon = 'machete'; sfx('trade'); }
           cv.traded = true; traded = true;
           P.score += 300;
@@ -724,25 +765,69 @@ function updatePlayer() {
       }
     }
     if (!traded) {
-      P.atk = ATK_DUR;
-      P.atkCd = ATK_CD;
-      sfx(P.weapon === 'machete' ? 'slash' : 'land');
+      // Susy: shoot rope to wall instead of attacking (when not on ground or wall-stuck)
+      if (charId==='susy' && (!P.ground || P.wallStick) && !P.rope) {
+        const targetWall = P.face > 0 ? PLAY_R : PLAY_L;
+        const ropeY = P.y - 30 - Math.random()*40; // anchor point above
+        P.rope = { wx: targetWall, wy: Math.max(ropeY, cam.y+20) };
+        P.wallStick = false;
+        P.vy = -1; // slight lift
+        sfx('rope');
+        P.atkCd = 30;
+      } else {
+        P.atk = ATK_DUR;
+        P.atkCd = ATK_CD;
+        sfx(P.weapon === 'machete' ? 'slash' : 'land');
+      }
     }
   }
   if (P.atk > 0) P.atk--;
 
-  // Gravity
-  P.vy += GRAV;
-  if (P.vy > MAX_FALL) P.vy = MAX_FALL;
+  // Gravity (reduced on rope)
+  if (P.rope) {
+    // Climbing rope: move toward anchor
+    const dx = P.rope.wx - (P.x+P.w/2), dy = P.rope.wy - P.y;
+    const dist = Math.sqrt(dx*dx+dy*dy);
+    if (dist > 4) {
+      const climbSpd = 1.8 * spdMult;
+      P.x += (dx/dist)*climbSpd; P.y += (dy/dist)*climbSpd;
+      P.vy = 0; P.vx = 0;
+      if (frame%12===0) sfx('ropeclimb');
+    } else {
+      // Reached anchor: land on wall
+      P.rope = null; P.wallStick = true;
+      P.wallStickSide = P.x+P.w/2 < VW/2 ? 1 : -1;
+    }
+  } else if (P.wallStick && charId==='susy') {
+    // Slow slide down wall
+    P.vy = 1.2;
+    P.y += P.vy;
+    P.vx = 0;
+  } else {
+    P.vy += GRAV;
+    if (P.vy > MAX_FALL) P.vy = MAX_FALL;
+    P.x += P.vx; P.y += P.vy;
+  }
 
-  P.x += P.vx; P.y += P.vy;
-
-  // Wall bounds
-  if (P.x < PLAY_L) P.x = PLAY_L;
-  if (P.x + P.w > PLAY_R) P.x = PLAY_R - P.w;
+  // Wall bounds + Susy wall stick
+  if (P.x < PLAY_L) {
+    P.x = PLAY_L;
+    if (charId==='susy' && !P.ground && P.vy > 0 && !P.rope) {
+      P.wallStick = true; P.wallStickSide = 1; // push right
+    }
+  }
+  if (P.x + P.w > PLAY_R) {
+    P.x = PLAY_R - P.w;
+    if (charId==='susy' && !P.ground && P.vy > 0 && !P.rope) {
+      P.wallStick = true; P.wallStickSide = -1; // push left
+    }
+  }
+  // Stop wall stick when landing
+  if (P.ground) { P.wallStick = false; P.rope = null; }
 
   // Walk animation
-  if (P.ground && Math.abs(P.vx) > 0.3) P.wf += 0.2 * spdMult;
+  if ((P.ground||P.wallStick) && Math.abs(P.vx) > 0.3) P.wf += 0.2 * spdMult;
+  else if (P.wallStick) P.wf += 0.1; // slight animation on wall
   else P.wf = 0;
 
   // Weed timer + smoke rings
@@ -1829,85 +1914,49 @@ function drawPlayer() {
   const cx=P.x+P.w/2, bot=P.y+P.h;
   const[sx,sy]=w2s(cx,bot);
 
-  // Weed trail (much more dramatic during trip)
+  // Weed trail
   const tripping = P.weedT > 0 && P.weedT < WEED_DUR - WEED_SMOKE_PHASE;
   if(tripping && frame%2===0){
     const hue=(frame*8)%360;
     spawn(cx,bot-P.h/2,2,`hsl(${hue},100%,60%)`,2,18);
   }
 
+  // Draw Susy's rope
+  if(charId==='susy' && P.rope){
+    const r=P.rope;
+    const[rx1,ry1]=w2s(cx,P.y);
+    const[rx2,ry2]=w2s(r.wx,r.wy);
+    X.strokeStyle='#C8A060';X.lineWidth=2*ZOOM;
+    X.beginPath();X.moveTo(rx1,ry1);X.lineTo(rx2,ry2);X.stroke();
+    // Rope anchor glow
+    X.fillStyle='rgba(200,160,96,0.5)';X.beginPath();X.arc(rx2,ry2,3*ZOOM,0,Math.PI*2);X.fill();
+  }
+
   X.save();
   X.translate(sx,sy);
   X.scale(ZOOM*P.face,ZOOM);
 
-  const la=P.ground?Math.sin(P.wf)*0.5:0.3;
-  // Legs — hide leggings
-  X.fillStyle='#6A5038';
-  X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
-  X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
-  // Feet — wrapped hide sandals
-  X.fillStyle='#5A4030';
+  const ch = CHARS.find(c=>c.id===charId) || CHARS[0];
+  const la=P.ground||P.wallStick?Math.sin(P.wf)*0.5:0.3;
   const b1=P.ground?Math.sin(P.wf)*2.5:1.5;
-  X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
-
-  // Body — Guanche warrior: animal hide vest with revolutionary bandana hints
-  X.fillStyle=tripping?`hsl(${(frame*6)%360},90%,55%)`:'#7A5533'; // brown hide
-  X.fillRect(-5.5,-19,11,12);
-  // Hide texture marks
-  if(!tripping){X.fillStyle='#6A4828';X.fillRect(-4,-17,2,2);X.fillRect(1,-15,2,2);X.fillRect(-2,-12,2,2);}
-
-  X.fillStyle='#8B6B3A';X.fillRect(-7,-17,3,8); // hide shoulder strap
-
-  // Arm + weapon
   const armSwing=P.atk>0?-1.2:P.ground?Math.sin(P.wf)*0.4:-0.3;
-  X.fillStyle='#E8B88A';
-  X.save();X.translate(5.5,-17);X.rotate(armSwing);
-  X.fillRect(-1,0,2.5,7);
-  // Weapon in hand
-  if(P.weapon==='machete'){
-    X.fillStyle='#CCC';X.fillRect(0,6,1.5,10);
-    X.fillStyle='#888';X.fillRect(-1,5,4,2);
-  }
-  X.restore();
 
-  // Attack arc
+  drawCharBody(charId, la, b1, armSwing, tripping);
+
+  // Attack arc (all characters)
   if(P.atk>ATK_DUR-6){
     X.strokeStyle=P.weapon==='machete'?'rgba(255,255,200,0.6)':'rgba(255,255,255,0.3)';
     X.lineWidth=2;
-    X.beginPath();
-    X.arc(6,-14,P.weapon==='machete'?16:12,-0.8,0.8);
-    X.stroke();
+    X.beginPath();X.arc(6,-14,P.weapon==='machete'?16:12,-0.8,0.8);X.stroke();
   }
 
-  // Head — darker skin (Guanche)
-  X.fillStyle='#C49A6C';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
-  // Dark hair (wild)
-  X.fillStyle='#1A1A1A';
-  X.beginPath();X.moveTo(-5,-25);X.lineTo(-6,-28);X.lineTo(-3,-27);X.lineTo(0,-29);
-  X.lineTo(3,-27);X.lineTo(6,-28);X.lineTo(5,-25);X.closePath();X.fill();
-  // Eyes: squinted when tripping/smoking
-  if(P.weedT>0){
-    X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);
-    X.strokeStyle='#222';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();
-  }else{
-    X.fillStyle='#222';X.fillRect(1.5,-24,1.5,1.5);
-    // Determined expression — slight frown
-    X.strokeStyle='#443322';X.lineWidth=0.6;X.beginPath();X.moveTo(-2,-21);X.lineTo(2,-21.5);X.stroke();
-  }
-  // Revolutionary headband (red)
-  X.fillStyle='#CC2200';X.fillRect(-6,-27,12,2.5);
-  // Headband tails flowing behind
-  X.strokeStyle='#CC2200';X.lineWidth=1.5;
-  X.beginPath();X.moveTo(-6,-26);X.quadraticCurveTo(-10,-24,-12,-27+Math.sin(P.wf*0.5)*2);X.stroke();
-  X.beginPath();X.moveTo(-6,-25);X.quadraticCurveTo(-9,-22,-11,-25+Math.sin(P.wf*0.5+1)*2);X.stroke();
+  drawCharHead(charId, tripping);
 
-  // Smoking animation: joint in mouth
+  // Smoking animation (all characters)
   const isSmoking = P.weedT >= WEED_DUR - WEED_SMOKE_PHASE;
   if(isSmoking){
-    // Joint (brown stick with glowing orange tip)
-    X.fillStyle='#C8A870';X.fillRect(4,-22,8,1.5); // joint body
-    X.fillStyle='#FF6600';X.fillRect(11.5,-22.5,2,2.5); // glowing tip
-    // Ember glow
+    X.fillStyle='#C8A870';X.fillRect(4,-22,8,1.5);
+    X.fillStyle='#FF6600';X.fillRect(11.5,-22.5,2,2.5);
     X.fillStyle=`rgba(255,100,0,${0.3+Math.sin(frame*0.5)*0.2})`;
     X.beginPath();X.arc(12.5,-21.5,2.5,0,Math.PI*2);X.fill();
   }
@@ -1915,6 +1964,102 @@ function drawPlayer() {
   X.restore();
 
   if(P.shield){X.strokeStyle=`rgba(0,200,255,${0.3+Math.sin(frame*0.1)*0.15})`;X.lineWidth=2;X.beginPath();X.arc(sx,sy-P.h/2*ZOOM,16*ZOOM,0,Math.PI*2);X.stroke();}
+
+  // Wall stick indicator for Susy
+  if(charId==='susy'&&P.wallStick){
+    X.fillStyle=`rgba(200,160,96,${0.3+Math.sin(frame*0.1)*0.1})`;
+    X.beginPath();X.arc(sx,sy-P.h/2*ZOOM,10*ZOOM,0,Math.PI*2);X.fill();
+  }
+}
+
+function drawCharBody(id, la, b1, armSwing, trip) {
+  const ch=CHARS.find(c=>c.id===id)||CHARS[0];
+  switch(id){
+    case 'warrior':
+      X.fillStyle='#6A5038';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.fillStyle='#5A4030';X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
+      X.fillStyle=trip?`hsl(${(frame*6)%360},90%,55%)`:'#7A5533';X.fillRect(-5.5,-19,11,12);
+      if(!trip){X.fillStyle='#6A4828';X.fillRect(-4,-17,2,2);X.fillRect(1,-15,2,2);}
+      X.fillStyle='#8B6B3A';X.fillRect(-7,-17,3,8);
+      X.fillStyle='#C49A6C';X.save();X.translate(5.5,-17);X.rotate(armSwing);X.fillRect(-1,0,2.5,7);
+      if(P.weapon==='machete'){X.fillStyle='#CCC';X.fillRect(0,6,1.5,10);X.fillStyle='#888';X.fillRect(-1,5,4,2);}
+      X.restore();break;
+    case 'hippie':
+      X.fillStyle='#886644';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-2,0,4,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-2,0,4,7);X.restore();
+      X.fillStyle='#775533';X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
+      {const h1=trip?(frame*6)%360:(frame*0.5)%360;
+      X.fillStyle=`hsl(${h1},55%,50%)`;X.fillRect(-5.5,-19,11,12);
+      X.fillStyle=`hsl(${(h1+120)%360},45%,45%)`;X.fillRect(-3,-17,3,4);
+      X.fillStyle=`hsl(${(h1+240)%360},45%,45%)`;X.fillRect(1,-15,3,4);}
+      X.fillStyle='#E8C8A0';X.save();X.translate(5.5,-17);X.rotate(armSwing);X.fillRect(-1,0,2.5,7);
+      if(P.weapon==='machete'){X.fillStyle='#CCC';X.fillRect(0,6,1.5,10);X.fillStyle='#888';X.fillRect(-1,5,4,2);}
+      X.restore();break;
+    case 'climber':
+      X.fillStyle='#334455';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,5);X.fillStyle='#888';X.fillRect(-2,4,4,2);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,5);X.fillStyle='#888';X.fillRect(-2,4,4,2);X.restore();
+      X.fillStyle='#FF6600';X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
+      X.fillStyle=trip?`hsl(${(frame*6)%360},90%,55%)`:'#CC4444';X.fillRect(-5,-19,10,12);
+      X.fillStyle='#D4A878';X.fillRect(-6,-17,2,8);X.fillRect(4,-17,2,8);
+      X.fillStyle='#D4A878';X.save();X.translate(5.5,-17);X.rotate(armSwing);X.fillRect(-1,0,2.5,7);
+      if(P.weapon==='machete'){X.fillStyle='#CCC';X.fillRect(0,6,1.5,10);X.fillStyle='#888';X.fillRect(-1,5,4,2);}
+      X.fillStyle='rgba(255,255,255,0.4)';X.fillRect(0,5,3,2); // chalk
+      X.restore();break;
+    case 'susy':
+      X.fillStyle='#336655';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.fillStyle='#2255AA';X.fillRect(-4+b1,-2,4,3);X.fillRect(1-b1,-2,4,3);
+      X.fillStyle=trip?`hsl(${(frame*6)%360},90%,55%)`:'#2288CC';X.fillRect(-5,-19,10,12);
+      X.strokeStyle='#C8A060';X.lineWidth=1.5;X.beginPath();X.arc(-3,-8,3,0,Math.PI*1.5);X.stroke();
+      X.fillStyle='#E0B090';X.save();X.translate(5.5,-17);X.rotate(armSwing);X.fillRect(-1,0,2.5,7);
+      if(P.weapon==='machete'){X.fillStyle='#CCC';X.fillRect(0,6,1.5,10);X.fillStyle='#888';X.fillRect(-1,5,4,2);}
+      X.restore();break;
+  }
+}
+
+function drawCharHead(id, trip) {
+  const weedEyes = P.weedT > 0;
+  switch(id){
+    case 'warrior':
+      X.fillStyle='#C49A6C';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#1A1A1A';X.beginPath();X.moveTo(-5,-25);X.lineTo(-6,-28);X.lineTo(-3,-27);X.lineTo(0,-29);X.lineTo(3,-27);X.lineTo(6,-28);X.lineTo(5,-25);X.closePath();X.fill();
+      if(weedEyes){X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);X.strokeStyle='#222';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();}
+      else{X.fillStyle='#222';X.fillRect(1.5,-24,1.5,1.5);X.strokeStyle='#443322';X.lineWidth=0.6;X.beginPath();X.moveTo(-2,-21);X.lineTo(2,-21.5);X.stroke();}
+      X.fillStyle='#CC2200';X.fillRect(-6,-27,12,2.5);
+      X.strokeStyle='#CC2200';X.lineWidth=1.5;
+      X.beginPath();X.moveTo(-6,-26);X.quadraticCurveTo(-10,-24,-12,-27+Math.sin(P.wf*0.5)*2);X.stroke();
+      X.beginPath();X.moveTo(-6,-25);X.quadraticCurveTo(-9,-22,-11,-25+Math.sin(P.wf*0.5+1)*2);X.stroke();
+      break;
+    case 'hippie':
+      X.fillStyle='#E8C8A0';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#AA7733';X.fillRect(-5,-26,10,4);X.fillRect(-5,-23,2,8);X.fillRect(3,-23,2,8);
+      X.fillStyle='#44CC44';X.fillRect(-5,-27,10,2);
+      if(weedEyes){X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);X.strokeStyle='#AA6633';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();}
+      else{X.fillStyle='#FF8800';X.fillRect(-4,-24.5,3,2);X.fillRect(1,-24.5,3,2);X.fillStyle='#333';X.fillRect(-1,-24,2,1);
+      X.strokeStyle='#AA6633';X.lineWidth=0.7;X.beginPath();X.arc(0,-21,2.5,0.2,Math.PI-0.2);X.stroke();}
+      break;
+    case 'climber':
+      X.fillStyle='#D4A878';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#553322';X.fillRect(-4,-27,8,3);X.fillRect(-5,-26,2,2);X.fillRect(3,-26,2,2);
+      X.fillStyle='#FF8800';X.fillRect(-5.5,-27,11,2);
+      if(weedEyes){X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);X.strokeStyle='#553322';X.lineWidth=0.8;X.beginPath();X.arc(0,-20.5,3,0.1,Math.PI-0.1);X.stroke();}
+      else{X.fillStyle='#222';X.fillRect(1,-24,2,2);X.fillRect(-3,-24,2,2);
+      X.strokeStyle='#553322';X.lineWidth=0.8;X.beginPath();X.arc(0,-20.5,3,0.1,Math.PI-0.1);X.stroke();}
+      break;
+    case 'susy':
+      X.fillStyle='#E0B090';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#1A0A2A';X.fillRect(-5,-27,10,5);X.fillRect(-5,-23,2,10);X.fillRect(3,-23,2,10);
+      X.fillStyle='#FF44AA';X.fillRect(-4,-26,2,8);
+      if(weedEyes){X.fillStyle='#222';X.fillRect(1,-24.5,2,0.6);X.fillRect(-3,-24.5,2,0.6);X.strokeStyle='#AA6655';X.lineWidth=0.8;X.beginPath();X.arc(0,-21,3,0.1,Math.PI-0.1);X.stroke();}
+      else{X.fillStyle='#222';X.fillRect(1,-24,1.5,1.5);X.fillRect(-2.5,-24,1.5,1.5);
+      X.strokeStyle='#AA6655';X.lineWidth=0.7;X.beginPath();X.moveTo(-2,-21);X.quadraticCurveTo(0,-19.5,3,-21.5);X.stroke();}
+      break;
+  }
 }
 
 // === DRAW PARTICLES ===
@@ -2026,10 +2171,10 @@ function drawTitle() {
   X.font=`${ts*0.35}px sans-serif`;X.fillStyle='#CCC';
   X.fillText('Spirit of the Guanches',C.width/2,C.height*0.32);
 
-  X.font=`${Math.max(11,ts*0.22)}px sans-serif`;X.fillStyle='#CC2200';
-  X.fillText('Guanche warrior \u2022 Underground outcast \u2022 Modern revolutionary',C.width/2,C.height*0.38);
-  X.fillStyle='#888';
-  X.fillText('Climb barrancos \u2022 Trade with cave sages \u2022 Defeat the oppressors',C.width/2,C.height*0.43);
+  X.font=`${Math.max(11,ts*0.22)}px sans-serif`;X.fillStyle='#B8956A';
+  X.fillText('Climb barrancos \u2022 Trade with cave sages \u2022 Chill with hippies',C.width/2,C.height*0.39);
+  X.fillStyle='#777';
+  X.fillText('4 characters \u2022 8 islands \u2022 32 levels \u2022 Boss fights',C.width/2,C.height*0.44);
 
   X.font=`${Math.max(11,ts*0.22)}px monospace`;X.fillStyle='#777';
   X.fillText('Arrows/WASD + Space + Z/X to attack \u2022 Gamepad supported',C.width/2,C.height*0.52);
@@ -2041,6 +2186,170 @@ function drawTitle() {
   if(bestW>1||bestL>1){X.font=`${ts*0.25}px sans-serif`;X.fillStyle='#AAA';X.fillText(`Continue from ${bestW}-${bestL}`,C.width/2,C.height*0.72);}
 
   X.font=`${11}px monospace`;X.fillStyle='#555';X.fillText('A Dragon Castle Production',C.width/2,C.height-20);
+}
+
+// === CHARACTER SELECT ===
+function drawCharSelect() {
+  const grd=X.createLinearGradient(0,0,0,C.height);
+  grd.addColorStop(0,'#0A0A20');grd.addColorStop(0.5,'#151525');grd.addColorStop(1,'#0A0510');
+  X.fillStyle=grd;X.fillRect(0,0,C.width,C.height);
+
+  const ts=Math.min(C.width/12,40);
+  X.font=`bold ${ts}px sans-serif`;X.textAlign='center';
+  X.fillStyle='#FFD700';X.fillText('CHOOSE YOUR CHARACTER',C.width/2,ts*1.5);
+
+  const cardW=C.width/4.5, cardH=C.height*0.55, gap=C.width*0.02;
+  const totalW=cardW*4+gap*3;
+  const startX=(C.width-totalW)/2;
+  const cardY=C.height*0.18;
+
+  for(let i=0;i<4;i++){
+    const ch=CHARS[i];
+    const cx=startX+i*(cardW+gap);
+    const sel=i===charIdx;
+    // Card bg
+    X.fillStyle=sel?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.04)';
+    X.fillRect(cx,cardY,cardW,cardH);
+    // Selection border
+    if(sel){
+      X.strokeStyle=ch.accent;X.lineWidth=3;
+      X.strokeRect(cx-1,cardY-1,cardW+2,cardH+2);
+      // Glow
+      X.shadowColor=ch.accent;X.shadowBlur=15;
+      X.strokeRect(cx-1,cardY-1,cardW+2,cardH+2);
+      X.shadowBlur=0;
+    }
+    // Character preview (draw a mini version)
+    const px=cx+cardW/2, py=cardY+cardH*0.45;
+    X.save();X.translate(px,py);X.scale(2.5,2.5);
+    drawCharPreview(ch.id);
+    X.restore();
+    // Name
+    X.font=`bold ${ts*0.38}px sans-serif`;X.textAlign='center';
+    X.fillStyle=sel?'#FFF':ch.accent;
+    X.fillText(ch.name,cx+cardW/2,cardY+cardH*0.72);
+    // Description
+    X.font=`${ts*0.25}px sans-serif`;X.fillStyle='#AAA';
+    X.fillText(ch.desc,cx+cardW/2,cardY+cardH*0.82);
+    // Special ability
+    if(ch.id==='hippie'){X.fillStyle='#7B7';X.fillText('+50% weed time',cx+cardW/2,cardY+cardH*0.92);}
+    if(ch.id==='climber'){X.fillStyle='#FA4';X.fillText('+20% speed & jump',cx+cardW/2,cardY+cardH*0.92);}
+    if(ch.id==='susy'){X.fillStyle='#F4A';X.fillText('Rope: press X near wall',cx+cardW/2,cardY+cardH*0.92);}
+    if(ch.id==='warrior'){X.fillStyle='#C42';X.fillText('+1 starting life',cx+cardW/2,cardY+cardH*0.92);}
+  }
+
+  // Controls hint
+  X.font=`${ts*0.28}px sans-serif`;X.textAlign='center';
+  X.fillStyle=`rgba(255,255,255,${0.4+Math.sin(frame*0.05)*0.2})`;
+  X.fillText('\u25C0 \u25B6 Select   SPACE Confirm',C.width/2,C.height*0.88);
+
+  // Arrows
+  const aY=cardY+cardH/2;
+  X.fillStyle=`rgba(255,255,255,${0.3+Math.sin(frame*0.08)*0.15})`;
+  X.font=`bold ${ts*0.5}px sans-serif`;
+  X.fillText('\u25C0',startX-ts*0.5,aY);
+  X.fillText('\u25B6',startX+totalW+ts*0.5,aY);
+}
+
+function drawCharPreview(id) {
+  // Mini character at origin, scale 1 (called with save/translate/scale)
+  const la=Math.sin(frame*0.04)*0.3;
+  switch(id) {
+    case 'warrior':
+      // Legs
+      X.fillStyle='#6A5038';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.fillStyle='#5A4030';X.fillRect(-4,-2,4,3);X.fillRect(1,-2,4,3);
+      // Body
+      X.fillStyle='#7A5533';X.fillRect(-5.5,-19,11,12);
+      X.fillStyle='#6A4828';X.fillRect(-4,-17,2,2);X.fillRect(1,-15,2,2);
+      X.fillStyle='#8B6B3A';X.fillRect(-7,-17,3,8);
+      // Arm
+      X.fillStyle='#C49A6C';X.save();X.translate(5.5,-17);X.rotate(la*0.5);X.fillRect(-1,0,2.5,7);X.restore();
+      // Head
+      X.fillStyle='#C49A6C';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#1A1A1A';X.beginPath();X.moveTo(-5,-25);X.lineTo(-6,-28);X.lineTo(-3,-27);X.lineTo(0,-29);X.lineTo(3,-27);X.lineTo(6,-28);X.lineTo(5,-25);X.closePath();X.fill();
+      X.fillStyle='#222';X.fillRect(1.5,-24,1.5,1.5);
+      X.fillStyle='#CC2200';X.fillRect(-6,-27,12,2.5);
+      X.strokeStyle='#CC2200';X.lineWidth=1.5;X.beginPath();X.moveTo(-6,-26);X.quadraticCurveTo(-10,-24,-12,-27);X.stroke();
+      break;
+    case 'hippie':
+      // Legs (baggy pants)
+      X.fillStyle='#886644';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-2,0,4,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-2,0,4,7);X.restore();
+      X.fillStyle='#775533';X.fillRect(-4,-2,4,3);X.fillRect(1,-2,4,3);
+      // Body (tie-dye shirt)
+      const hue1=(frame*2)%360;
+      X.fillStyle=`hsl(${hue1},60%,55%)`;X.fillRect(-5.5,-19,11,12);
+      X.fillStyle=`hsl(${(hue1+120)%360},50%,50%)`;X.fillRect(-3,-17,3,4);
+      X.fillStyle=`hsl(${(hue1+240)%360},50%,50%)`;X.fillRect(1,-15,3,4);
+      // Arm
+      X.fillStyle='#E8C8A0';X.save();X.translate(5.5,-17);X.rotate(la);X.fillRect(-1,0,2.5,7);X.restore();
+      // Head
+      X.fillStyle='#E8C8A0';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      // Long hair
+      X.fillStyle='#AA7733';X.fillRect(-5,-26,10,4);
+      X.fillRect(-5,-23,2,8);X.fillRect(3,-23,2,8);
+      // Headband (peace flowers)
+      X.fillStyle='#44CC44';X.fillRect(-5,-27,10,2);
+      // Sunglasses
+      X.fillStyle='#FF8800';X.fillRect(-4,-24.5,3,2);X.fillRect(1,-24.5,3,2);
+      X.fillStyle='#333';X.fillRect(-1,-24,2,1);
+      // Smile
+      X.strokeStyle='#AA6633';X.lineWidth=0.7;X.beginPath();X.arc(0,-21,2.5,0.2,Math.PI-0.2);X.stroke();
+      break;
+    case 'climber':
+      // Legs (shorts + knee pads)
+      X.fillStyle='#334455';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,5);
+      X.fillStyle='#888';X.fillRect(-2,4,4,2);X.restore(); // knee pad
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,5);
+      X.fillStyle='#888';X.fillRect(-2,4,4,2);X.restore();
+      X.fillStyle='#FF6600';X.fillRect(-4,-2,4,3);X.fillRect(1,-2,4,3); // orange shoes
+      // Body (tank top)
+      X.fillStyle='#CC4444';X.fillRect(-5,-19,10,12);
+      X.fillStyle='#D4A878';X.fillRect(-6,-17,2,8);X.fillRect(4,-17,2,8); // bare arms
+      // Arm
+      X.fillStyle='#D4A878';X.save();X.translate(5.5,-17);X.rotate(la*0.8);X.fillRect(-1,0,2.5,7);X.restore();
+      // Head
+      X.fillStyle='#D4A878';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#553322';X.fillRect(-4,-27,8,3); // short messy hair
+      X.fillRect(-5,-26,2,2);X.fillRect(3,-26,2,2);
+      // Bandana
+      X.fillStyle='#FF8800';X.fillRect(-5.5,-27,11,2);
+      // Eyes (excited)
+      X.fillStyle='#222';X.fillRect(1,-24,2,2);X.fillRect(-3,-24,2,2);
+      // Grin
+      X.strokeStyle='#553322';X.lineWidth=0.8;X.beginPath();X.arc(0,-20.5,3,0.1,Math.PI-0.1);X.stroke();
+      // Chalk on hands
+      X.fillStyle='rgba(255,255,255,0.4)';X.fillRect(5,-11,3,2);
+      break;
+    case 'susy':
+      // Legs (cargo pants)
+      X.fillStyle='#336655';
+      X.save();X.translate(-2.5,-8);X.rotate(la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.save();X.translate(2.5,-8);X.rotate(-la);X.fillRect(-1.5,0,3,7);X.restore();
+      X.fillStyle='#2255AA';X.fillRect(-4,-2,4,3);X.fillRect(1,-2,4,3); // blue boots
+      // Body
+      X.fillStyle='#2288CC';X.fillRect(-5,-19,10,12);
+      // Rope coil on belt
+      X.strokeStyle='#C8A060';X.lineWidth=1.5;X.beginPath();X.arc(-3,-8,3,0,Math.PI*1.5);X.stroke();
+      // Arm
+      X.fillStyle='#E0B090';X.save();X.translate(5.5,-17);X.rotate(la);X.fillRect(-1,0,2.5,7);X.restore();
+      // Head
+      X.fillStyle='#E0B090';X.beginPath();X.arc(0,-23,4.5,0,Math.PI*2);X.fill();
+      // Long dark hair with pink streak
+      X.fillStyle='#1A0A2A';X.fillRect(-5,-27,10,5);
+      X.fillRect(-5,-23,2,10);X.fillRect(3,-23,2,10); // long flowing
+      X.fillStyle='#FF44AA';X.fillRect(-4,-26,2,8); // pink streak
+      // Eyes
+      X.fillStyle='#222';X.fillRect(1,-24,1.5,1.5);X.fillRect(-2.5,-24,1.5,1.5);
+      // Confident smirk
+      X.strokeStyle='#AA6655';X.lineWidth=0.7;X.beginPath();X.moveTo(-2,-21);X.quadraticCurveTo(0,-19.5,3,-21.5);X.stroke();
+      break;
+  }
 }
 
 // === WORLD INTRO ===
@@ -2108,7 +2417,7 @@ function drawHelp() {
   X.font = `bold ${ts}px sans-serif`; X.fillStyle = '#FFD700';
   X.fillText('BARRANCO BROTHERS', C.width/2, ts + 10);
   X.font = `${fs}px sans-serif`; X.fillStyle = '#AAA';
-  X.fillText('Guanche Warrior \u2022 Underground Outcast', C.width/2, ts + 10 + fs * 1.5);
+  X.fillText('Spirit of the Guanches', C.width/2, ts + 10 + fs * 1.5);
 
   let y = ts + 10 + fs * 3.5;
   X.textAlign = 'left';
@@ -2630,7 +2939,14 @@ function startGame(cont){
   else{world=1;level=1;}
   P.lives=3;P.score=0;P.shield=false;P.inv=false;P.dead=false;
   P.weapon=null;P.water=0;P.banana=0;P.weedT=0;P.papasT=0;P.tunaT=0;P.atk=0;P.atkCd=0;
-  boss=null;state=ST.INTRO;stTimer=0;
+  P.rope=null;P.wallStick=false;P.wallStickSide=0;
+  boss=null;state=ST.CHARSEL;stTimer=0;
+}
+function confirmChar(){
+  charId=CHARS[charIdx].id;
+  // Character-specific starting bonuses
+  if(charId==='warrior') P.lives=4; // extra life
+  state=ST.INTRO;stTimer=0;
 }
 function saveProgress(){
   if(P.score>hiScore)hiScore=P.score;
@@ -2645,6 +2961,13 @@ function update(){
   frame++;stTimer++;pollInput();
   switch(state){
     case ST.TITLE:if(inp.jp||(inp.start&&stTimer>30))startGame(true);break;
+    case ST.CHARSEL:
+      if(stTimer>10){
+        if(inp.l&&!prevSel){charIdx=(charIdx+3)%4;prevSel=true;sfx('collect');}
+        else if(inp.r&&!prevSel){charIdx=(charIdx+1)%4;prevSel=true;sfx('collect');}
+        else if(!inp.l&&!inp.r) prevSel=false;
+        if(inp.jp||inp.start) confirmChar();
+      }break;
     case ST.INTRO:if(stTimer>60&&(inp.jp||inp.start)){loadLevel();state=ST.PLAY;playMusic(world);}break;
     case ST.PLAY:
       if(inp.start&&stTimer>10){state=ST.PAUSE;stTimer=0;if(curTrack)curTrack.volume=0.1;break;}
@@ -2675,6 +2998,7 @@ function render(){
   X.clearRect(0,0,C.width,C.height);
   switch(state){
     case ST.TITLE:drawTitle();break;
+    case ST.CHARSEL:drawCharSelect();break;
     case ST.INTRO:drawIntro();break;
     case ST.PLAY:case ST.BOSS:case ST.PAUSE:case ST.COMPLETE:case ST.OVER:
       X.save();X.translate(shake.x*ZOOM,shake.y*ZOOM);
@@ -2698,6 +3022,13 @@ loadMusic();loadProgress();loop();
 C.addEventListener('touchstart',e=>{
   if(state===ST.TITLE||state===ST.INTRO||state===ST.COMPLETE||state===ST.OVER){
     ensureAudio();inp.jp=true;prevJ=true;setTimeout(()=>{inp.jp=false;},50);
+  }
+  if(state===ST.CHARSEL){
+    ensureAudio();
+    const tx=e.touches[0].clientX;
+    if(tx<C.width*0.3){charIdx=(charIdx+3)%4;sfx('collect');}
+    else if(tx>C.width*0.7){charIdx=(charIdx+1)%4;sfx('collect');}
+    else{inp.jp=true;setTimeout(()=>{inp.jp=false;},50);}
   }
 },{passive:true});
 C.addEventListener('click',()=>{ensureAudio();if(state===ST.TITLE)startGame(true);});
