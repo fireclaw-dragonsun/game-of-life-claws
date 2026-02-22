@@ -48,6 +48,10 @@ const ATK_DUR = 12;
 const ATK_CD = 20;
 const WEED_DUR = 600; // 10 seconds at 60fps
 const WEED_SMOKE_PHASE = 90; // 1.5s smoking animation before trip
+const SILBO_CD = 300; // 5 seconds cooldown for El Silbo whistle
+const SILBO_RANGE = 120; // pixel range for stun/reveal
+const SILBO_STUN = 90; // frames enemies are stunned
+const CRUMBLE_RESPAWN = 240; // 4 seconds to respawn crumbled platforms
 
 let ZOOM = 1, VH = 240;
 
@@ -176,12 +180,17 @@ const P = { x:0,y:0,vx:0,vy:0,w:PW,h:PH,ground:false,jump:false,face:1,wf:0,
   papasT:0, tunaT:0,
   water:0, banana:0,
   // Susy rope state
-  rope:null, wallStick:false, wallStickSide:0 };
+  rope:null, wallStick:false, wallStickSide:0,
+  // El Silbo
+  silboT:0, silboRing:0,
+  // Garrote (pole) for descent levels
+  garrote:false };
 const cam = { y:0 };
 const lava = { y:9999, spd:0, active:false };
 let lvlTimer = 0; // frames remaining
 let lvlTimerMax = 0;
 let plats=[], hazs=[], cols=[], enemies=[], caves=[], npcs=[], goats=[], dogs=[], alcoves=[], parts=[];
+const avalanche = { y: -200, spd: 0, active: false };
 let shake={x:0,y:0,i:0};
 let boss = null; // active boss object
 
@@ -196,19 +205,28 @@ const BOSS_NAMES = {
 };
 const BOSS_TAUNTS = {
   conquistador: [
-    "I claimed this island 500 years ago! You cannot take it back!",
-    "The Crown sent me to crush rebels like you!",
-    "Your ancestors fell before my blade. You will too!",
+    "I claimed this island 500 years ago! But my GPS broke...",
+    "The Crown sent me here. They forgot to send a return ticket!",
+    "Your ancestors broke my favorite helmet. I'm still mad!",
+    "I've been dead 500 years and my knees STILL hurt!",
+    "Do you know how hard it is to find a dry cleaner for zombie armor?!",
+    "I left the oven on in 1496. Is it still going?",
   ],
   golem: [
-    "I AM THE MOUNTAIN. YOU ARE DUST.",
-    "THE STONES REMEMBER WHAT YOU FORGOT.",
-    "NO MORTAL CLIMBS PAST ME.",
+    "I AM THE MOUNTAIN. BUT MY BACK HURTS.",
+    "THE STONES REMEMBER... WHERE DID I PARK?",
+    "NO MORTAL CLIMBS PAST ME. UNLESS THEY ASK NICELY.",
+    "I'VE BEEN STANDING HERE FOR 10,000 YEARS. I NEED TO SIT DOWN.",
+    "EARTHQUAKE? NO, THAT WAS MY STOMACH.",
+    "I HAD A PET LIZARD ONCE. HE RAN AWAY. 5000 YEARS AGO.",
   ],
   helicopter: [
-    "HALT! Illegal climbing activity detected!",
-    "This is a restricted zone! Turn yourself in!",
-    "Resistance is futile! The system always wins!",
+    "HALT! You forgot to pay your climbing permit fee!",
+    "This is a restricted zone! Also my coffee is cold!",
+    "Resistance is futile! ...Is that a churro stand down there?",
+    "ATTENTION: Free parking ends in 5 minutes!",
+    "Command says I can't go home until you surrender. PLEASE surrender!",
+    "My pilot license expired in 2019. Don't tell anyone!",
   ],
 };
 let hiScore=0, bestW=1, bestL=1;
@@ -217,7 +235,7 @@ let showHelp = false;
 // === INPUT ===
 const keys = {};
 const inp = { l:false, r:false, j:false, jp:false, a:false, ap:false, start:false };
-let prevJ = false, prevA = false, prevSel = false;
+let prevJ = false, prevA = false, prevSel = false, prevS = false;
 const tch = { l:false, r:false, j:false, a:false };
 
 document.addEventListener('keydown', e => { keys[e.code]=true; if(['Space','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault(); });
@@ -250,10 +268,13 @@ function pollInput() {
     if (gp.buttons[9]?.pressed||gp.buttons[8]?.pressed) inp.start = true;
     break;
   }
+  inp.s = keys['KeyS'];
   inp.jp = inp.j && !prevJ;
   inp.ap = inp.a && !prevA;
+  inp.sp = inp.s && !prevS;
   prevJ = inp.j;
   prevA = inp.a;
+  prevS = inp.s;
 }
 
 // === AUDIO ===
@@ -412,6 +433,24 @@ function sfx(type) {
       o.type='triangle'; o.frequency.setValueAtTime(400,t); o.frequency.linearRampToValueAtTime(500,t+.06);
       g.gain.setValueAtTime(.05,t); g.gain.exponentialRampToValueAtTime(.001,t+.08);
       o.start(t); o.stop(t+.08); break;
+    case 'silbo': {
+      // El Silbo - Canary Island whistle language
+      [800,1200,1800,1400,2200].forEach((f,i) => {
+        const oo=actx.createOscillator(), gg=actx.createGain();
+        oo.type='sine'; oo.frequency.value=f;
+        gg.gain.setValueAtTime(.1,t+i*.12); gg.gain.exponentialRampToValueAtTime(.001,t+i*.12+.3);
+        oo.connect(gg); gg.connect(actx.destination);
+        oo.start(t+i*.12); oo.stop(t+i*.12+.3);
+      }); break; }
+    case 'poleVault':
+      o.type='triangle'; o.frequency.setValueAtTime(150,t); o.frequency.linearRampToValueAtTime(80,t+.2);
+      g.gain.setValueAtTime(.15,t); g.gain.exponentialRampToValueAtTime(.001,t+.25);
+      o.start(t); o.stop(t+.25); break;
+    case 'avalanche':
+      o.type='sawtooth'; o.frequency.setValueAtTime(60,t); o.frequency.linearRampToValueAtTime(100,t+1.5);
+      g.gain.setValueAtTime(.12,t); g.gain.linearRampToValueAtTime(.18,t+1);
+      g.gain.exponentialRampToValueAtTime(.001,t+2);
+      o.start(t); o.stop(t+2); break;
     default:
       o.type='sine'; o.frequency.value=440;
       g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.1);
@@ -544,7 +583,7 @@ function genLevel(w, l) {
       en.push({
         x: nx + pw/2, y: curY - 26, platX: nx, platW: pw,
         vx: 0.4 + rng() * 0.6, dir: rng() < 0.5 ? 1 : -1,
-        hp: 1, dead: false, deadT: 0, w: 14, h: 26
+        hp: 1, dead: false, deadT: 0, w: 14, h: 26, stunT: 0
       });
     }
 
@@ -561,7 +600,7 @@ function genLevel(w, l) {
     // Collectibles
     if (rng() < 0.35) {
       const types = ['water','water','banana','banana','drago','aloe'];
-      cs.push({ type: types[Math.floor(rng()*types.length)], x: nx+pw/2, y: curY-20, got:false });
+      cs.push({ type: types[Math.floor(rng()*types.length)], x: nx+pw/2, y: curY-20, got:false, revealed:false });
     }
 
     // NPC vendors (abuela + cook) — only if platform is still free
@@ -590,7 +629,7 @@ function genLevel(w, l) {
         onWall: true, jumpT: 120 + Math.floor(rng() * 120),
         platY: curY, platX: nx, platW: pw,
         dir: side === 'left' ? 1 : -1, vx: 0,
-        dead: false, w: 12, h: 12, anim: rng() * Math.PI * 2
+        dead: false, w: 12, h: 12, anim: rng() * Math.PI * 2, stunT: 0
       });
     }
 
@@ -643,7 +682,16 @@ function genLevel(w, l) {
     lastP = ps[ps.length-1];
   }
 
-  return { height, timerSec, lavaSpd, plats:ps, hazs:hs, cols:cs, enemies:en, caves:cv, npcs:nc, goats:gt, dogs:dg, alcoves:al, goal };
+  const isDesc = l === 3; // Level X-3 = Salto del Pastor descent
+  if (isDesc) {
+    // Swap start and goal for descent levels
+    goal.y = height - 80;
+    // Move the original start platform to top and make it the new start
+    ps[0].y = 160; ps[0].x = VW/2-60; ps[0].w = 120;
+    // Add a clear landing zone at the bottom (the goal)
+    ps.push({ x: goal.x, y: goal.y, w: goal.w, type:'solid', act:false, t:0, ox:0 });
+  }
+  return { height, timerSec, lavaSpd, plats:ps, hazs:hs, cols:cs, enemies:en, caves:cv, npcs:nc, goats:gt, dogs:dg, alcoves:al, goal, descent:isDesc };
 }
 
 // === LOAD LEVEL ===
@@ -654,17 +702,26 @@ function loadLevel() {
   goats = lvl.goats; dogs = lvl.dogs; alcoves = lvl.alcoves;
 
   const sp = plats[0];
-  P.x = sp.x + sp.w/2 - P.w/2; P.y = sp.y - P.h;
+  if (lvl.descent) {
+    // Descent: start at top (start platform moved to y=160)
+    P.x = sp.x + sp.w/2 - P.w/2; P.y = sp.y - P.h;
+    P.garrote = true; // auto-equip pole for descent
+  } else {
+    P.x = sp.x + sp.w/2 - P.w/2; P.y = sp.y - P.h;
+    P.garrote = false;
+  }
   P.vx = 0; P.vy = 0; P.ground = false; P.jump = false;
   P.face = 1; P.wf = 0; P.dead = false;
   P.inv = false; P.invT = 0; P.atk = 0; P.atkCd = 0;
   P.rope = null; P.wallStick = false; P.wallStickSide = 0;
+  P.silboRing = 0; // keep silboT cooldown across levels
   // Keep weapon and inventory across levels within a run
   // P.weapon, P.water, P.banana, P.weedT persist
 
   lvlTimer = Math.floor(lvl.timerSec * 60);
   lvlTimerMax = lvlTimer;
   lava.y = lvl.height + 500; lava.spd = 0; lava.active = false;
+  avalanche.y = -200; avalanche.spd = 0; avalanche.active = false;
 
   cam.y = P.y - VH/2;
   parts = []; shake = {x:0,y:0,i:0};
@@ -698,8 +755,8 @@ function updatePlayer() {
       P.rope = null;
     } else if (P.wallStick) {
       // Wall jump (Susy)
-      P.vy = JUMP_V * jumpMult * 0.85;
-      P.vx = P.wallStickSide * 4;
+      P.vy = JUMP_V * jumpMult * 0.7;
+      P.vx = P.wallStickSide * 3;
       P.wallStick = false;
     } else {
       P.vy = JUMP_V * jumpMult;
@@ -768,12 +825,12 @@ function updatePlayer() {
       // Susy: shoot rope to wall instead of attacking (when not on ground or wall-stuck)
       if (charId==='susy' && (!P.ground || P.wallStick) && !P.rope) {
         const targetWall = P.face > 0 ? PLAY_R : PLAY_L;
-        const ropeY = P.y - 30 - Math.random()*40; // anchor point above
+        const ropeY = P.y - 20 - Math.random()*25; // anchor point above (nerfed range)
         P.rope = { wx: targetWall, wy: Math.max(ropeY, cam.y+20) };
         P.wallStick = false;
         P.vy = -1; // slight lift
         sfx('rope');
-        P.atkCd = 30;
+        P.atkCd = 50;
       } else {
         P.atk = ATK_DUR;
         P.atkCd = ATK_CD;
@@ -789,7 +846,7 @@ function updatePlayer() {
     const dx = P.rope.wx - (P.x+P.w/2), dy = P.rope.wy - P.y;
     const dist = Math.sqrt(dx*dx+dy*dy);
     if (dist > 4) {
-      const climbSpd = 1.8 * spdMult;
+      const climbSpd = 1.2 * spdMult;
       P.x += (dx/dist)*climbSpd; P.y += (dy/dist)*climbSpd;
       P.vy = 0; P.vx = 0;
       if (frame%12===0) sfx('ropeclimb');
@@ -800,7 +857,7 @@ function updatePlayer() {
     }
   } else if (P.wallStick && charId==='susy') {
     // Slow slide down wall
-    P.vy = 1.2;
+    P.vy = 2.2;
     P.y += P.vy;
     P.vx = 0;
   } else {
@@ -850,6 +907,38 @@ function updatePlayer() {
         vx: P.face*0.8+Math.random()*0.5, vy: -0.5-Math.random()*0.3,
         life: 30, maxLife: 30, col: 'rgba(200,200,200,0.7)', size: 2+Math.random()*3, ring: false });
     }
+  }
+
+  // El Silbo whistle
+  if (P.silboT > 0) P.silboT--;
+  if (P.silboRing > 0) { P.silboRing++; if (P.silboRing > 40) P.silboRing = 0; }
+  if (inp.sp && P.silboT <= 0 && !P.dead && !smoking) {
+    P.silboT = SILBO_CD; P.silboRing = 1;
+    sfx('silbo');
+    // Stun nearby enemies
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const dx2 = e.x - (P.x+P.w/2), dy2 = (e.y+e.h/2) - (P.y+P.h/2);
+      if (Math.sqrt(dx2*dx2+dy2*dy2) < SILBO_RANGE) e.stunT = SILBO_STUN;
+    }
+    for (const g of goats) {
+      if (g.dead) continue;
+      const dx2 = (g.x+g.w/2) - (P.x+P.w/2), dy2 = (g.y+g.h/2) - (P.y+P.h/2);
+      if (Math.sqrt(dx2*dx2+dy2*dy2) < SILBO_RANGE) g.stunT = SILBO_STUN;
+    }
+    // Reveal nearby collectibles with glow
+    for (const c of cols) {
+      if (c.got) continue;
+      const dx2 = c.x - (P.x+P.w/2), dy2 = c.y - (P.y+P.h/2);
+      if (Math.sqrt(dx2*dx2+dy2*dy2) < SILBO_RANGE) c.revealed = true;
+    }
+    spawn(P.x+P.w/2, P.y+P.h/2, 15, '#88DDFF', 3, 25);
+  }
+
+  // Garrote pole descent control (descent levels only)
+  if (P.garrote && !P.ground && P.vy > 2.5 && inp.a) {
+    P.vy = 2.5; // controlled descent
+    if (frame%20===0) sfx('poleVault');
   }
 
   // Papas + Tuna timers
@@ -917,6 +1006,9 @@ function updatePlayer() {
   // Lava death
   if (lava.active && P.y + P.h > lava.y) hurtPlayer(true);
 
+  // Avalanche death (descent levels)
+  if (avalanche.active && P.y < avalanche.y) hurtPlayer(true);
+
   // Fall off bottom
   if (P.y > lvl.height + 100) hurtPlayer(true);
 
@@ -964,6 +1056,7 @@ function hurtPlayer(instant) {
 function updateEnemies() {
   for (const e of enemies) {
     if (e.dead) { e.deadT--; continue; }
+    if (e.stunT > 0) { e.stunT--; continue; }
     e.x += e.vx * e.dir;
     // Patrol bounds
     if (e.x - e.w/2 < e.platX + 3) { e.dir = 1; }
@@ -981,7 +1074,7 @@ function updatePlatforms() {
   for (const p of plats) {
     p.prevOx = p.ox || 0;
     if (p.type === 'moving') p.ox = Math.sin((frame*p.mspd*0.02)+p.phase)*p.range;
-    if (p.type === 'crumble' && p.act) { p.t++; if (p.t < 30) p.ox = (Math.random()-0.5)*3; else p.ox = 0; }
+    if (p.type === 'crumble' && p.act) { p.t++; if (p.t < 30) p.ox = (Math.random()-0.5)*3; else p.ox = 0; if (p.t > 35 + CRUMBLE_RESPAWN) { p.act = false; p.t = 0; } }
   }
 }
 
@@ -1042,6 +1135,7 @@ function updateHazards() {
 function updateGoats() {
   for (const g of goats) {
     if (g.dead) continue;
+    if (g.stunT > 0) { g.stunT--; continue; }
     g.anim += 0.08;
     if (g.onWall) {
       // Climb wall upward
@@ -1175,17 +1269,30 @@ function updateTimer() {
   if (lvlTimer > 0) {
     lvlTimer--;
     if (lvlTimer === 0) {
-      // ERUPTION!
-      lava.active = true;
-      lava.y = lvl.height + 300;
-      lava.spd = lvl.lavaSpd;
-      sfx('eruption');
-      addShake(15);
+      if (lvl.descent) {
+        // AVALANCHE from above!
+        avalanche.active = true;
+        avalanche.y = -200;
+        avalanche.spd = lvl.lavaSpd * 0.8;
+        sfx('avalanche');
+        addShake(15);
+      } else {
+        // ERUPTION from below!
+        lava.active = true;
+        lava.y = lvl.height + 300;
+        lava.spd = lvl.lavaSpd;
+        sfx('eruption');
+        addShake(15);
+      }
     }
   }
   if (lava.active) {
     lava.spd += 0.002;
     lava.y -= lava.spd;
+  }
+  if (avalanche.active) {
+    avalanche.spd += 0.002;
+    avalanche.y += avalanche.spd;
   }
 }
 
@@ -1687,6 +1794,15 @@ function drawEnemies() {
     X.fillRect(-0.5,-33,1,6);
 
     X.restore();
+    // Stun stars
+    if (e.stunT > 0 && !e.dead) {
+      const[stx,sty]=w2s(e.x, e.y);
+      for(let s=0;s<3;s++){
+        const sa=frame*0.1+s*2.1, sr=8*ZOOM;
+        X.fillStyle='#FFD700';X.font=`${8*ZOOM}px sans-serif`;X.textAlign='center';
+        X.fillText('\u2605',stx+Math.cos(sa)*sr,sty-6*ZOOM+Math.sin(sa)*sr*0.5);
+      }
+    }
     X.globalAlpha = 1;
   }
 }
@@ -1811,6 +1927,15 @@ function drawGoats() {
     X.strokeStyle='#B8976A';X.lineWidth=1.5;
     X.beginPath();X.moveTo(-7,-9);X.lineTo(-10,-11);X.stroke();
     X.restore();
+    // Stun stars for goats
+    if (g.stunT > 0) {
+      const[gsx,gsy]=w2s(cx,g.y);
+      for(let s=0;s<2;s++){
+        const sa=frame*0.12+s*3.1, sr=6*ZOOM;
+        X.fillStyle='#FFD700';X.font=`${6*ZOOM}px sans-serif`;X.textAlign='center';
+        X.fillText('\u2605',gsx+Math.cos(sa)*sr,gsy-4*ZOOM+Math.sin(sa)*sr*0.4);
+      }
+    }
   }
 }
 
@@ -1868,6 +1993,11 @@ function drawCollectibles() {
     const[sx,sy]=w2s(c.x,c.y);
     if(sy<-30||sy>C.height+30) continue;
     const bob=Math.sin(frame*0.05+c.x)*3*ZOOM;
+    // El Silbo reveal glow
+    if (c.revealed) {
+      X.fillStyle=`rgba(136,221,255,${0.15+Math.sin(frame*0.08)*0.08})`;
+      X.beginPath();X.arc(sx,sy+bob,12*ZOOM,0,Math.PI*2);X.fill();
+    }
     switch(c.type){
       case'water':X.fillStyle='#4488FF';X.fillRect(sx-3*ZOOM,sy+bob-5*ZOOM,6*ZOOM,10*ZOOM);X.fillStyle='#66AAFF';X.fillRect(sx-2*ZOOM,sy+bob-7*ZOOM,4*ZOOM,3*ZOOM);break;
       case'banana':X.fillStyle='#FFD700';X.beginPath();X.arc(sx,sy+bob,5*ZOOM,0.2,Math.PI-0.2);X.lineWidth=3*ZOOM;X.strokeStyle='#FFD700';X.stroke();break;
@@ -1904,6 +2034,52 @@ function drawLava() {
   // Glow
   X.fillStyle='rgba(255,100,0,0.08)';
   X.fillRect(0,lsy-40*ZOOM,C.width,40*ZOOM);
+}
+
+// === DRAW AVALANCHE (descent levels) ===
+function drawAvalanche() {
+  if (!avalanche.active) return;
+  const[,asy]=w2s(0,avalanche.y);
+  if(asy<0) { // fill from top of screen to avalanche line
+    X.fillStyle='rgba(100,80,60,0.8)';
+    X.fillRect(0,0,C.width,0); // nothing visible yet
+    return;
+  }
+  // Rocks and debris falling from top
+  X.fillStyle='rgba(90,70,50,0.7)';
+  X.beginPath(); X.moveTo(0,asy);
+  for(let x=0;x<=C.width;x+=10){const w=Math.sin(x*0.02+frame*0.06)*4*ZOOM;X.lineTo(x,asy+w);}
+  X.lineTo(C.width,0);X.lineTo(0,0);X.closePath();X.fill();
+  // Deeper fill
+  X.fillStyle='rgba(60,50,40,0.6)';
+  X.fillRect(0,0,C.width,Math.max(0,asy-15*ZOOM));
+  // Falling rock particles along the edge
+  for(let i=0;i<6;i++){
+    const rx=(Math.sin(frame*0.03+i*2.1)*0.5+0.5)*C.width;
+    const ry=asy+(5+Math.sin(frame*0.07+i*1.3)*6)*ZOOM;
+    const rs=(3+Math.sin(frame*0.05+i)*2)*ZOOM;
+    X.fillStyle='rgba(120,100,80,0.5)';
+    X.beginPath();X.arc(rx,ry,rs,0,Math.PI*2);X.fill();
+  }
+  // Dust cloud glow
+  X.fillStyle='rgba(150,130,100,0.1)';
+  X.fillRect(0,asy,C.width,40*ZOOM);
+}
+
+// === DRAW EL SILBO RING ===
+function drawSilboRing() {
+  if (P.silboRing <= 0) return;
+  const cx=P.x+P.w/2, cy=P.y+P.h/2;
+  const[sx,sy]=w2s(cx,cy);
+  const r = P.silboRing * 3 * ZOOM;
+  const alpha = Math.max(0, 1 - P.silboRing/40);
+  X.strokeStyle=`rgba(136,221,255,${alpha})`;
+  X.lineWidth=2*ZOOM;
+  X.beginPath();X.arc(sx,sy,r,0,Math.PI*2);X.stroke();
+  // Inner ring
+  X.strokeStyle=`rgba(255,255,200,${alpha*0.5})`;
+  X.lineWidth=ZOOM;
+  X.beginPath();X.arc(sx,sy,r*0.6,0,Math.PI*2);X.stroke();
 }
 
 // === DRAW PLAYER ===
@@ -1962,6 +2138,21 @@ function drawPlayer() {
   }
 
   X.restore();
+
+  // Garrote (Salto del Pastor pole)
+  if(P.garrote){
+    const poleAngle = (!P.ground && inp.a) ? 0.1 : 0.5; // vertical when braking, angled when walking
+    const[px,py]=w2s(cx,bot);
+    X.save();X.translate(px,py);X.scale(P.face,1);
+    X.strokeStyle='#8B6B3A';X.lineWidth=2.5*ZOOM;
+    X.beginPath();X.moveTo(3*ZOOM,-P.h*0.3*ZOOM);
+    X.lineTo(3*ZOOM+Math.sin(poleAngle)*30*ZOOM,-P.h*0.3*ZOOM-Math.cos(poleAngle)*30*ZOOM);X.stroke();
+    // Metal tip
+    X.fillStyle='#AAA';
+    const tipX=3*ZOOM+Math.sin(poleAngle)*30*ZOOM, tipY=-P.h*0.3*ZOOM-Math.cos(poleAngle)*30*ZOOM;
+    X.beginPath();X.arc(tipX,tipY,1.5*ZOOM,0,Math.PI*2);X.fill();
+    X.restore();
+  }
 
   if(P.shield){X.strokeStyle=`rgba(0,200,255,${0.3+Math.sin(frame*0.1)*0.15})`;X.lineWidth=2;X.beginPath();X.arc(sx,sy-P.h/2*ZOOM,16*ZOOM,0,Math.PI*2);X.stroke();}
 
@@ -2087,7 +2278,8 @@ function drawHUD() {
   function txt(s,x,y,c){X.fillStyle='rgba(0,0,0,0.5)';X.fillText(s,x+1,y+1);X.fillStyle=c||'#FFF';X.fillText(s,x,y);}
 
   // World-Level
-  txt(`${world}-${level} ${LEVEL_NAMES[`${world}-${level}`]||''}`,pad,pad+fs,'#FFD');
+  const descTag = lvl&&lvl.descent?' \u2193 SALTO':'';
+  txt(`${world}-${level} ${LEVEL_NAMES[`${world}-${level}`]||''}${descTag}`,pad,pad+fs,'#FFD');
 
   // Score
   X.textAlign='right'; txt(`${P.score}`,C.width-pad,pad+fs,'#FFF');
@@ -2102,7 +2294,8 @@ function drawHUD() {
   if(lvlTimer<1800&&lvlTimer>900) tCol='#FFD700';
   else if(lvlTimer<=900&&lvlTimer>0) tCol=frame%30<15?'#FF3333':'#FF8833';
   else if(lvlTimer<=0) tCol='#FF0000';
-  txt(lava.active?'ERUPTION!':tStr,C.width/2,pad+fs,tCol);
+  const dangerTxt = avalanche.active?'AVALANCHE!':lava.active?'ERUPTION!':tStr;
+  txt(dangerTxt,C.width/2,pad+fs,tCol);
 
   // Lives
   X.textAlign='left';
@@ -2129,6 +2322,11 @@ function drawHUD() {
   if(P.papasT>0){txt(`\u2B50 Papas ${Math.ceil(P.papasT/60)}s`,pad,iy+fs*3.4,'#D4A76A');}
   // Tuna boost
   if(P.tunaT>0){txt(`\u2660 Tuna ${Math.ceil(P.tunaT/60)}s`,pad+100,iy+fs*3.4,'#4488CC');}
+  // Garrote indicator
+  if(P.garrote){txt('\u2191 Garrote (hold X to brake)',pad,iy+fs*4.6,'#8B6B3A');}
+  // El Silbo cooldown
+  if(P.silboT>0){txt(`Silbo ${Math.ceil(P.silboT/60)}s`,pad+120,iy+fs*4.6,'#88DDFF');}
+  else{X.textAlign='left';X.font=`${Math.max(10,fs*0.75)}px sans-serif`;X.fillStyle='rgba(136,221,255,0.4)';X.fillText('[S] Silbo',pad,iy+fs*5.4);}
 
   // Help hint (top-right, below score)
   X.textAlign='right';X.font=`${Math.max(10,fs*0.75)}px sans-serif`;X.fillStyle='rgba(255,255,255,0.35)';
@@ -2138,6 +2336,7 @@ function drawHUD() {
   if(lvl){const mmW=6,mmH=100,mmX=C.width-pad-mmW,mmY=C.height/2-mmH/2;
     X.fillStyle='rgba(0,0,0,0.3)';X.fillRect(mmX-1,mmY-1,mmW+2,mmH+2);
     if(lava.active){const lPct=clamp(1-lava.y/lvl.height,0,1);X.fillStyle='rgba(255,100,0,0.5)';X.fillRect(mmX,mmY+mmH*(1-lPct),mmW,mmH*lPct);}
+    if(avalanche.active){const aPct=clamp(avalanche.y/lvl.height,0,1);X.fillStyle='rgba(150,130,100,0.5)';X.fillRect(mmX,mmY,mmW,mmH*aPct);}
     const pPct=clamp(1-P.y/lvl.height,0,1);X.fillStyle='#FF0';X.fillRect(mmX-1,mmY+mmH*(1-pPct)-2,mmW+2,4);
     const gPct=clamp(1-lvl.goal.y/lvl.height,0,1);X.fillStyle='#0F0';X.fillRect(mmX,mmY+mmH*(1-gPct)-1,mmW,2);
   }
@@ -2371,7 +2570,15 @@ function drawIntro() {
   X.fillStyle='rgba(0,0,0,0.3)';X.fillText(`World ${world}`,C.width/2+2,C.height*0.2+2);
   X.fillStyle='#FFF';X.fillText(`World ${world}`,C.width/2,C.height*0.2);
   X.font=`bold ${ts*0.7}px sans-serif`;X.fillStyle='#FFD700';X.fillText(WORLDS[world].name,C.width/2,C.height*0.2+ts*1.1);
-  X.font=`${ts*0.35}px sans-serif`;X.fillStyle='#DDD';X.fillText(LEVEL_NAMES[`${world}-${level}`]||'',C.width/2,C.height*0.2+ts*1.8);
+  X.font=`${ts*0.35}px sans-serif`;X.fillStyle='#DDD';
+  const lName = LEVEL_NAMES[`${world}-${level}`]||'';
+  X.fillText(lName,C.width/2,C.height*0.2+ts*1.8);
+  if (level === 3) {
+    X.font=`bold ${ts*0.4}px sans-serif`;X.fillStyle='#FF8C00';
+    X.fillText('SALTO DEL PASTOR',C.width/2,C.height*0.2+ts*2.5);
+    X.font=`${ts*0.25}px sans-serif`;X.fillStyle='#CCC';
+    X.fillText('Descend the barranco with the garrote!',C.width/2,C.height*0.2+ts*3.1);
+  }
 
   if(stTimer>60){const pulse=Math.sin(frame*0.06)*0.3+0.7;X.font=`${ts*0.35}px sans-serif`;X.fillStyle=`rgba(255,255,255,${pulse})`;X.fillText('Press SPACE to begin',C.width/2,C.height*0.82);}
 }
@@ -2443,6 +2650,7 @@ function drawHelp() {
   y = row('SPACE', 'Jump (hold = higher)', y);
   y = row('X / Z', 'Attack / Trade', y);
   y = row('ESC', 'Pause game', y);
+  y = row('S', 'El Silbo whistle (stun + reveal)', y);
   y = row('H', 'Toggle this help', y);
   y += lh * 0.3;
 
@@ -2519,12 +2727,29 @@ function drawHelp() {
   // TIPS
   y = heading('\u26A1 Tips', y); y += lh * 0.3;
   X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  // SALTO DEL PASTOR
+  y = heading('\u2193 Salto del Pastor (Level X-3)', y); y += lh * 0.3;
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('\u2022 Descent levels! Start at top, reach the bottom.', col1, y); y += lh;
+  X.fillText('\u2022 Auto-equipped with garrote (Canary pine pole)', col1, y); y += lh;
+  X.fillText('\u2022 Hold X while falling to brake with the pole', col1, y); y += lh;
+  X.fillText('\u2022 Avalanche descends from above - keep moving down!', col1, y); y += lh * 2;
+
+  // EL SILBO
+  y = heading('\u266A El Silbo (Whistled Language)', y); y += lh * 0.3;
+  X.font = `${fs * 0.9}px sans-serif`; X.fillStyle = '#BBB';
+  X.fillText('\u2022 Press S to whistle (5 second cooldown)', col1, y); y += lh;
+  X.fillText('\u2022 Stuns nearby enemies and goats', col1, y); y += lh;
+  X.fillText('\u2022 Reveals nearby collectibles with a glow', col1, y); y += lh;
+  X.fillText('\u2022 Based on real whistled language from La Gomera', col1, y); y += lh * 2;
+
   const tips = [
     '\u2022 Jump on enemies to stomp them, or attack with X',
     '\u2022 Collect Water Bottles and Bananas to trade',
     '\u2022 Ganja = invincibility + rainbow psychedelic!',
     '\u2022 Wall alcoves protect from mega boulders',
     '\u2022 Level X-4 = BOSS FIGHT! Hit them with attacks or stomps',
+    '\u2022 Crumbling platforms respawn after 4 seconds',
     '\u2022 You are the resistance. Never stop climbing.',
   ];
   for (const tip of tips) {
@@ -2542,7 +2767,7 @@ function drawHelp() {
 function spawnBoss() {
   const btype = BOSS_TYPES[world] || 'conquistador';
   const diff = (world-1)*4+level;
-  const baseHp = 5 + world * 3; // 8 to 29 HP
+  const baseHp = 3 + world * 2; // 5 to 19 HP (easier)
   const g = lvl.goal;
   boss = {
     type: btype, hp: baseHp, maxHp: baseHp,
@@ -2635,10 +2860,19 @@ function updateBoss() {
   }
 }
 
+const BOSS_OUCH = {
+  conquistador: ['OW!','My armor!','Not the helmet!','That tickles!','I felt that!','Madre mia!'],
+  golem: ['OUCH!','MY TOE!','THAT CRACK WAS NEW!','I JUST POLISHED THAT!','OW OW OW!','TINY BUT MEAN!'],
+  helicopter: ['MAYDAY!','My paint job!','That was expensive!','Insurance!','Engine light on!','Not the tail rotor!'],
+};
 function hitBoss(dmg) {
   boss.hp -= dmg; boss.invT = 20; boss.flashT = 15;
   sfx('bosshit'); addShake(5);
   spawn(boss.x, boss.y+boss.h/2, 8, '#FF4444', 3, 18);
+  // Funny ouch reaction
+  const ouchList = BOSS_OUCH[boss.type] || ['OW!'];
+  boss.taunt = ouchList[Math.floor(Math.random()*ouchList.length)];
+  boss.tauntT = 60;
   if (boss.hp <= 0) {
     boss.dead = true; boss.deathT = 0;
     P.score += 1000 + world * 500;
@@ -2655,8 +2889,8 @@ function updateBossConquistador(aL, aR) {
   boss.x = clamp(boss.x, aL, aR);
   boss.y = g.y - boss.h;
   // Charge attack every 120 frames
-  if (boss.timer % (130 - world*5) === 0) {
-    boss.vx = boss.dir * (4 + world*0.5);
+  if (boss.timer % (180 - world*5) === 0) {
+    boss.vx = boss.dir * (3 + world*0.3);
     boss.phase = 1; // charging
   }
   if (boss.phase === 1) {
@@ -2666,11 +2900,11 @@ function updateBossConquistador(aL, aR) {
     boss.x = clamp(boss.x, aL, aR);
   }
   // Throw sword projectile every 90 frames
-  if (boss.timer % (100 - world*4) === 0) {
+  if (boss.timer % (150 - world*4) === 0) {
     boss.attacks.push({
       x: boss.x, y: boss.y + boss.h*0.3,
-      vx: boss.dir * (3 + world*0.3), vy: -1.5,
-      w: 10, h: 6, life: 120, type: 'sword'
+      vx: boss.dir * (2.5 + world*0.2), vy: -1.5,
+      w: 10, h: 6, life: 100, type: 'sword'
     });
     sfx('slash');
   }
@@ -2684,7 +2918,7 @@ function updateBossGolem(aL, aR) {
   boss.x += boss.dir * (0.4 + world*0.08);
   boss.x = clamp(boss.x, aL, aR);
   // Stomp/quake every 100 frames
-  if (boss.timer % (110 - world*4) === 0) {
+  if (boss.timer % (160 - world*4) === 0) {
     boss.slamT = 20; boss.quakeT = 30;
     addShake(10); sfx('bouldercrash');
     // Quake damages if player on ground near boss
@@ -2695,11 +2929,11 @@ function updateBossGolem(aL, aR) {
   if (boss.slamT > 0) boss.slamT--;
   if (boss.quakeT > 0) boss.quakeT--;
   // Throw boulder every 80 frames
-  if (boss.timer % (90 - world*3) === 0) {
+  if (boss.timer % (140 - world*3) === 0) {
     boss.attacks.push({
       x: boss.x, y: boss.y + 10,
-      vx: boss.dir * (2 + world*0.2), vy: -3,
-      w: 16, h: 14, life: 150, type: 'boulder'
+      vx: boss.dir * (1.5 + world*0.15), vy: -2.5,
+      w: 14, h: 12, life: 130, type: 'boulder'
     });
     sfx('rockwarn');
   }
@@ -2714,7 +2948,7 @@ function updateBossHelicopter() {
   // Helicopter chop sound
   if (boss.timer % 15 === 0) sfx('helicopter');
   // Drop tear gas canister every 70 frames
-  if (boss.timer % (80 - world*3) === 0) {
+  if (boss.timer % (120 - world*3) === 0) {
     boss.attacks.push({
       x: boss.x, y: boss.y + boss.h,
       vx: 0, vy: 1.5,
@@ -2723,7 +2957,7 @@ function updateBossHelicopter() {
     sfx('teargas');
   }
   // Shoot bullets every 50 frames
-  if (boss.timer % (60 - world*2) === 0) {
+  if (boss.timer % (100 - world*2) === 0) {
     const dx = P.x+P.w/2 - boss.x, dy = P.y+P.h/2 - boss.y;
     const dist = Math.sqrt(dx*dx+dy*dy) || 1;
     boss.attacks.push({
@@ -2940,6 +3174,7 @@ function startGame(cont){
   P.lives=3;P.score=0;P.shield=false;P.inv=false;P.dead=false;
   P.weapon=null;P.water=0;P.banana=0;P.weedT=0;P.papasT=0;P.tunaT=0;P.atk=0;P.atkCd=0;
   P.rope=null;P.wallStick=false;P.wallStickSide=0;
+  P.silboT=0;P.silboRing=0;P.garrote=false;
   boss=null;state=ST.CHARSEL;stTimer=0;
 }
 function confirmChar(){
@@ -3002,7 +3237,7 @@ function render(){
     case ST.INTRO:drawIntro();break;
     case ST.PLAY:case ST.BOSS:case ST.PAUSE:case ST.COMPLETE:case ST.OVER:
       X.save();X.translate(shake.x*ZOOM,shake.y*ZOOM);
-      drawBg();drawWalls();drawAlcoves();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawGoats();drawDogs();drawHazards();drawPlayer();drawBoss();drawLava();drawParticles();
+      drawBg();drawWalls();drawAlcoves();drawPlatforms();drawCaves();drawNPCs();drawCollectibles();drawEnemies();drawGoats();drawDogs();drawHazards();drawPlayer();drawSilboRing();drawBoss();drawLava();drawAvalanche();drawParticles();
       X.restore();drawHUD();
       // Psychedelic overlay glow during trip
       if(tripping){
